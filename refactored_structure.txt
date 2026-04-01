@@ -1,0 +1,724 @@
+================================================================================
+                     MULTITENANT BILLING SYSTEM
+                     REFACTORED ENTERPRISE PROJECT STRUCTURE
+================================================================================
+
+Project     : MultiTenantBillingSystem
+Package     : com.mtbs
+Java Ver.   : 17
+Spring Boot  : 3.4.3
+Build Tool   : Maven (Multi-Module)
+Database     : PostgreSQL (schema-per-tenant multi-tenancy)
+
+================================================================================
+                        MAVEN MODULE LAYOUT
+================================================================================
+
+MultiTenantBillingSystem/               [Root POM]
+├── mtbs-shared-kernel/                 [Shared across all modules — zero deps on others]
+├── mtbs-tenant-core/                   [Tenant lifecycle, onboarding, plan management]
+├── mtbs-auth/                          [Authentication, authorization, RBAC]
+├── mtbs-billing/                       [Subscription, invoice, payment, usage]
+├── mtbs-business/                      [Customer, product, business invoices]
+├── mtbs-notification/                  [Email, SMS, webhook notifications]
+├── mtbs-admin/                         [Super-admin, platform metrics, cross-tenant ops]
+└── mtbs-app/                           [Spring Boot entry point, wires all modules]
+
+================================================================================
+                    MODULE: mtbs-shared-kernel
+================================================================================
+
+src/main/java/com/mtbs/shared/
+│
+├── annotation/
+│   ├── FeatureGate.java                [Feature limit enforcement]
+│   └── TrackUsage.java                 [Usage metric tracking]
+│
+├── constant/
+│   ├── ApiConstants.java               [API version, default roles]
+│   ├── CookieConstants.java            [Cookie names & paths]
+│   ├── SchemaConstants.java            [Schema name patterns]
+│   └── SecurityConstants.java          [JWT bearer prefix, roles]
+│
+├── dto/
+│   └── common/
+│       ├── ApiResponse.java            [Standard API wrapper]
+│       ├── PageResponse.java           [Paginated response wrapper]
+│       └── ErrorResponse.java          [Structured error payload]
+│
+├── entity/
+│   └── base/
+│       ├── BaseEntity.java             [id + soft-delete + optimistic locking]
+│       └── AuditableEntity.java        [createdAt, updatedAt, createdBy, updatedBy]
+│
+├── enums/
+│   ├── auth/
+│   │   └── Status.java                 [ACTIVE, SUSPENDED, INACTIVE]
+│   ├── billing/
+│   │   ├── BillingCycle.java           [MONTHLY, ANNUAL]
+│   │   ├── Currency.java               [INR, USD, EUR]
+│   │   ├── InvoiceStatus.java          [DRAFT, OPEN, PAID, VOID, UNCOLLECTIBLE]
+│   │   ├── LineItemType.java           [SUBSCRIPTION, USAGE, DISCOUNT, TAX]
+│   │   ├── PaymentMethod.java          [CARD, UPI, NET_BANKING, BANK_TRANSFER]
+│   │   ├── PaymentStatus.java          [PENDING, CAPTURED, FAILED, REFUNDED, CANCELLED]
+│   │   ├── SubscriptionStatus.java     [TRIALING, ACTIVE, PAST_DUE, CANCELLED, UNPAID, EXPIRED]
+│   │   └── UsageMetric.java            [API_CALLS, ACTIVE_USERS, STORAGE_GB]
+│   ├── notification/
+│   │   └── NotificationEvent.java      [All event types including BUSINESS_* events]
+│   └── plan/
+│       └── PlanTier.java               [FREE, PRO, ENTERPRISE]
+│
+├── event/
+│   ├── DomainEvent.java                [Base domain event interface]
+│   ├── auth/
+│   │   └── AuthNotificationEvent.java
+│   ├── billing/
+│   │   ├── BillingEvent.java
+│   │   └── SubscriptionChangedEvent.java
+│   └── business/
+│       └── BusinessEvent.java
+│
+├── exception/
+│   ├── BaseException.java              [Abstract base exception]
+│   ├── ErrorCode.java                  [Centralised error code enum]
+│   ├── AuthException.java
+│   ├── PaymentException.java
+│   ├── ResourceException.java
+│   ├── TenantException.java
+│   └── TokenException.java
+│
+├── multitenancy/
+│   ├── TenantContext.java              [ThreadLocal + InheritableThreadLocal holder]
+│   ├── TenantAwareTaskDecorator.java   [Propagates TenantContext to @Async / thread pools]
+│   └── TenantContextHolder.java        [Helper: get/set/clear with null-safety]
+│
+└── util/
+    ├── CookieUtils.java                [Cookie read/write/clear]
+    └── SecurityUtils.java              [Security context helpers]
+
+================================================================================
+                    MODULE: mtbs-tenant-core
+================================================================================
+
+src/main/java/com/mtbs/tenant/
+│
+├── config/
+│   └── FlywayConfig.java               [Public schema migrations]
+│
+├── entity/
+│   ├── Tenant.java                     [PUBLIC schema — org record]
+│   ├── TenantOnboarding.java           [PUBLIC schema — wizard state]
+│   └── Plan.java                       [PUBLIC schema — plan definitions]
+│
+├── enums/
+│   └── OnboardingStep.java             [STEP_1, STEP_2, STEP_3, COMPLETED]
+│
+├── repository/
+│   ├── TenantRepository.java
+│   ├── TenantOnboardingRepository.java
+│   └── PlanRepository.java
+│
+├── service/
+│   ├── TenantService.java              [Tenant self-management]
+│   ├── TenantFlywayMigrationService.java [Schema provisioning on signup]
+│   ├── PlanService.java                [Plan CRUD]
+│   ├── PlanLimitService.java           [Limit enforcement logic]
+│   └── onboarding/
+│       ├── OnboardingService.java      [3-step orchestration]
+│       ├── OnboardingScopedService.java [@Transactional writes]
+│       └── OnboardingCompletionService.java [Step 3 — finalize + activate]
+│
+├── dto/
+│   ├── tenant/
+│   │   ├── TenantResponse.java
+│   │   ├── TenantSchemaInfoResponse.java
+│   │   ├── TenantStatusResponse.java
+│   │   └── UpdateTenantRequest.java
+│   ├── plan/
+│   │   ├── CreatePlanRequest.java
+│   │   ├── UpdatePlanRequest.java
+│   │   ├── PlanResponse.java
+│   │   └── PlanLimits.java             [Plan limit snapshot DTO]
+│   └── onboarding/
+│       ├── OnboardingStep1Request.java
+│       ├── OnboardingStep2Request.java
+│       ├── OnboardingStep3Request.java
+│       ├── OnboardingStepResponse.java
+│       └── OnboardingStatusResponse.java
+│
+├── mapper/
+│   ├── TenantMapper.java               [Tenant entity <-> DTO]
+│   └── PlanMapper.java                 [Plan entity <-> DTO]
+│
+├── controller/
+│   ├── TenantController.java           [Tenant self-management]
+│   ├── OnboardingController.java       [3-step onboarding flow]
+│   └── platform/
+│       └── PlanController.java         [Plan management — platform-level]
+│
+└── interceptor/
+    └── PlanLimitInterceptor.java       [API rate limiting via plan limits]
+
+================================================================================
+                    MODULE: mtbs-auth
+================================================================================
+
+src/main/java/com/mtbs/auth/
+│
+├── config/
+│   └── SecurityConfig.java             [Spring Security config]
+│
+├── entity/
+│   ├── User.java                       [Tenant-scoped]
+│   ├── Role.java                       [Tenant-scoped]
+│   ├── RolePermission.java             [Tenant-scoped join table]
+│   ├── Permission.java                 [PUBLIC schema — RBAC definitions]
+│   ├── PlatformAdmin.java              [PUBLIC schema — super admins]
+│   └── RefreshToken.java               [Tenant-scoped]
+│
+├── repository/
+│   ├── UserRepository.java
+│   ├── RoleRepository.java
+│   ├── RolePermissionRepository.java
+│   ├── PermissionRepository.java
+│   ├── PlatformAdminRepository.java
+│   └── RefreshTokenRepository.java
+│
+├── service/
+│   ├── AuthService.java                [Login/logout orchestration]
+│   ├── SignupService.java              [Phase 0 — tenant signup]
+│   ├── TenantAuthService.java          [Schema-scoped auth operations]
+│   ├── SuperAdminAuthService.java      [Platform admin auth]
+│   ├── LoginRateLimiter.java           [Redis-backed rate limiting]
+│   ├── PasswordResetService.java       [Password reset flow]
+│   ├── UserService.java                [User management orchestration]
+│   ├── UserScopedService.java          [@Transactional user writes]
+│   ├── RoleService.java                [Role + permission management]
+│   ├── PermissionService.java          [Permission CRUD]
+│   └── RefreshTokenService.java        [Refresh token management]
+│
+├── security/
+│   ├── JwtTokenProvider.java           [JWT generation and validation]
+│   ├── JwtAuthenticationFilter.java    [JWT validation + TenantContext setup]
+│   ├── JwtAuthenticationEntryPoint.java [401 response handler]
+│   └── UserPrincipal.java              [UserDetails implementation]
+│
+├── aspect/
+│   └── UsageTrackingAspect.java        [@TrackUsage AOP implementation]
+│
+├── event/
+│   └── AuthEventPublisher.java         [Publishes auth events to outbox]
+│
+├── dto/
+│   ├── auth/
+│   │   ├── LoginRequest.java
+│   │   ├── SignupRequest.java
+│   │   ├── LogoutRequest.java
+│   │   ├── AuthResponse.java           [JWT + token response]
+│   │   ├── RefreshTokenRequest.java
+│   │   ├── ForgotPasswordRequest.java
+│   │   ├── ResetPasswordRequest.java
+│   │   ├── SuperAdminLoginRequest.java
+│   │   └── UserProfileResponse.java
+│   ├── user/
+│   │   ├── CreateUserRequest.java
+│   │   ├── UpdateUserRequest.java
+│   │   ├── UpdateOwnProfileRequest.java
+│   │   ├── ChangeUserRoleRequest.java
+│   │   ├── ChangeUserStatusRequest.java
+│   │   └── UserResponse.java
+│   ├── role/
+│   │   ├── CreateRoleRequest.java
+│   │   ├── UpdateRoleRequest.java
+│   │   ├── AssignPermissionRequest.java
+│   │   ├── RoleResponse.java
+│   │   └── RoleDetailResponse.java
+│   └── permission/
+│       ├── CreatePermissionRequest.java
+│       └── PermissionResponse.java
+│
+├── mapper/
+│   ├── UserMapper.java
+│   └── RoleMapper.java
+│
+└── controller/
+    ├── auth/
+    │   ├── AuthController.java         [Tenant login/logout/signup]
+    │   └── AdminAuthController.java    [SuperAdmin login/refresh]
+    └── platform/
+        ├── UserController.java         [Tenant user management]
+        ├── RoleController.java         [Role + permission management]
+        └── PermissionController.java   [Permission CRUD]
+
+================================================================================
+                    MODULE: mtbs-billing
+================================================================================
+
+src/main/java/com/mtbs/billing/
+│
+├── entity/
+│   ├── Subscription.java               [Tenant-scoped]
+│   ├── Invoice.java                    [Tenant-scoped]
+│   ├── InvoiceLineItem.java            [Tenant-scoped]
+│   ├── Payment.java                    [Tenant-scoped — gateway_metadata JSONB field]
+│   ├── UsageRecord.java                [Tenant-scoped — raw events]
+│   ├── UsageSummary.java               [Tenant-scoped — aggregated]
+│   └── OutboxEvent.java                [Tenant-scoped — transactional outbox]
+│
+├── repository/
+│   ├── SubscriptionRepository.java
+│   ├── InvoiceRepository.java
+│   ├── InvoiceLineItemRepository.java
+│   ├── PaymentRepository.java
+│   ├── UsageRecordRepository.java
+│   ├── UsageSummaryRepository.java
+│   └── OutboxEventRepository.java
+│
+├── service/
+│   ├── SubscriptionService.java        [Subscription lifecycle]
+│   ├── InvoiceService.java             [Invoice lifecycle]
+│   ├── InvoicePdfService.java          [PDF generation]
+│   ├── PaymentService.java             [Payment orchestration]
+│   ├── UsageService.java               [Usage recording + aggregation]
+│   └── TenantScopedSubscriptionService.java [Transactional subscription writes]
+│
+├── gateway/
+│   ├── PaymentGatewayPort.java         [Payment gateway interface — port]
+│   ├── RazorpayPaymentGateway.java     [Razorpay adapter]
+│   └── StripePaymentGateway.java       [Stripe adapter — stub, ready to implement]
+│
+├── outbox/
+│   ├── OutboxEventProcessor.java       [Polls outbox table, publishes to event bus]
+│   └── OutboxEventPublisher.java       [Writes events atomically in same transaction]
+│
+├── event/
+│   ├── BillingEventPublisher.java
+│   └── SubscriptionEventPublisher.java
+│
+├── aspect/
+│   └── FeatureGateAspect.java          [@FeatureGate AOP implementation]
+│
+├── scheduler/
+│   └── job/
+│       ├── BillingCycleJob.java        [Daily — invoice generation]
+│       ├── PaymentRetryJob.java        [Every 6h — retry failed payments]
+│       ├── SubscriptionExpiryJob.java  [Hourly — expire PAST_DUE subscriptions]
+│       ├── TrialEndingSoonJob.java     [Daily — trial ending alerts]
+│       ├── TrialExpiryJob.java         [Daily — expire trials]
+│       └── UsageAggregationJob.java    [Hourly — aggregate usage records]
+│
+├── dto/
+│   ├── InvoiceResponse.java
+│   ├── InvoiceLineItemResponse.java
+│   ├── PaymentResponse.java
+│   ├── OrderResponse.java              [Razorpay order]
+│   ├── RefundRequest.java
+│   ├── RefundResult.java
+│   ├── VerifyPaymentRequest.java
+│   ├── UsageResponse.java
+│   ├── UsageLimitsResponse.java
+│   ├── TenantBillingDashboard.java
+│   ├── subscription/
+│   │   ├── ActivateSubscriptionRequest.java
+│   │   ├── CancelSubscriptionRequest.java
+│   │   ├── ChangePlanRequest.java
+│   │   ├── StartTrialRequest.java
+│   │   └── SubscriptionResponse.java
+│   └── readmodel/
+│       └── BillingDashboardReadModel.java [Dedicated read-model for dashboard queries]
+│
+├── mapper/
+│   ├── InvoiceMapper.java
+│   ├── PaymentMapper.java
+│   └── SubscriptionMapper.java
+│
+├── readmodel/
+│   └── BillingDashboardQueryService.java  [CQRS read side — native SQL / read replica]
+│
+└── controller/
+    ├── InvoiceController.java          [Invoice CRUD]
+    ├── PaymentController.java          [Payment processing]
+    ├── SubscriptionController.java     [Subscription management]
+    ├── UsageController.java            [Usage tracking]
+    ├── DashboardController.java        [Tenant billing dashboard]
+    └── webhook/
+        └── RazorpayWebhookController.java [Razorpay payment webhooks]
+
+================================================================================
+                    MODULE: mtbs-business
+================================================================================
+
+src/main/java/com/mtbs/business/
+│
+├── entity/
+│   ├── Customer.java                   [Tenant-scoped — end customers]
+│   ├── Product.java                    [Tenant-scoped — product catalog]
+│   ├── BusinessInvoice.java            [Tenant-scoped — manual invoices]
+│   ├── BusinessInvoiceItem.java        [Tenant-scoped — line items]
+│   └── BusinessPayment.java            [Tenant-scoped — customer payments]
+│
+├── repository/
+│   ├── CustomerRepository.java
+│   ├── ProductRepository.java
+│   ├── BusinessInvoiceRepository.java
+│   ├── BusinessInvoiceItemRepository.java
+│   └── BusinessPaymentRepository.java
+│
+├── service/
+│   ├── CustomerService.java            [Customer CRUD]
+│   ├── ProductService.java             [Product catalog management]
+│   ├── BusinessInvoiceService.java     [Invoice lifecycle]
+│   ├── BusinessInvoicePdfService.java  [Business invoice PDF generation]
+│   ├── BusinessPaymentService.java     [Record customer payments]
+│   └── BusinessReportService.java      [Revenue & outstanding reports]
+│
+├── event/
+│   └── BusinessEventPublisher.java
+│
+├── readmodel/
+│   └── BusinessReportQueryService.java [CQRS read side — revenue/outstanding queries]
+│
+├── dto/
+│   ├── customer/
+│   │   ├── CreateCustomerRequest.java
+│   │   ├── UpdateCustomerRequest.java
+│   │   └── CustomerResponse.java
+│   ├── product/
+│   │   ├── CreateProductRequest.java
+│   │   ├── UpdateProductRequest.java
+│   │   └── ProductResponse.java
+│   ├── invoice/
+│   │   ├── CreateBusinessInvoiceRequest.java
+│   │   ├── AddLineItemRequest.java
+│   │   ├── BusinessInvoiceResponse.java
+│   │   └── BusinessInvoiceItemResponse.java
+│   ├── payment/
+│   │   ├── RecordPaymentRequest.java
+│   │   └── BusinessPaymentResponse.java
+│   └── report/
+│       ├── RevenueReportResponse.java
+│       ├── MonthlyReportRow.java
+│       └── OutstandingReportResponse.java
+│
+├── mapper/
+│   ├── CustomerMapper.java
+│   ├── ProductMapper.java
+│   └── BusinessInvoiceMapper.java
+│
+└── controller/
+    ├── CustomerController.java         [Customer CRUD]
+    ├── ProductController.java          [Product catalog management]
+    ├── BusinessInvoiceController.java  [Business invoice management]
+    ├── BusinessPaymentController.java  [Customer payment recording]
+    └── BusinessReportController.java   [Revenue & outstanding reports]
+
+================================================================================
+                    MODULE: mtbs-notification
+================================================================================
+
+src/main/java/com/mtbs/notification/
+│
+├── port/
+│   └── NotificationPort.java           [Notification gateway interface]
+│
+├── provider/
+│   ├── EmailNotificationProvider.java  [SMTP / SES email sender]
+│   ├── SmsNotificationProvider.java    [Twilio / SNS stub — ready to wire]
+│   └── WebhookNotificationProvider.java [Tenant webhook delivery — stub]
+│
+├── service/
+│   ├── NotificationService.java        [Orchestrates provider selection]
+│   └── NotificationDispatcher.java    [Async dispatcher — reads from event bus]
+│
+├── config/
+│   └── EmailTemplateConfig.java        [Thymeleaf template mapping]
+│
+└── templates/emails/                   [Thymeleaf Email Templates]
+    ├── layout/
+    │   └── base.html
+    ├── auth/
+    │   ├── welcome.html
+    │   ├── login-alert.html
+    │   ├── password-reset.html
+    │   └── password-changed.html
+    ├── billing/
+    │   ├── invoice-generated.html
+    │   ├── payment-success.html
+    │   └── payment-failed.html
+    ├── plan/
+    │   ├── upgraded.html
+    │   └── downgraded.html
+    ├── subscription/
+    │   ├── activated.html
+    │   ├── cancelled.html
+    │   ├── expired.html
+    │   ├── renewed.html
+    │   ├── trial-started.html
+    │   ├── trial-ending.html
+    │   └── trial-ended.html
+    └── usage/
+        ├── limit-warning.html
+        └── limit-reached.html
+
+================================================================================
+                    MODULE: mtbs-admin
+================================================================================
+
+src/main/java/com/mtbs/admin/
+│
+├── entity/
+│   └── AuditLog.java                   [PUBLIC schema — immutable audit trail]
+│
+├── repository/
+│   ├── AuditLogRepository.java
+│   └── AdminMetricsRepository.java     [Native queries for platform metrics]
+│
+├── service/
+│   ├── AdminTenantService.java         [Tenant management by super admin]
+│   ├── AdminUserService.java           [Cross-tenant user operations]
+│   ├── AdminMetricsService.java        [Platform-wide metrics aggregation]
+│   ├── AdminTenantScopedService.java   [Admin — schema-scoped user queries]
+│   └── AuditLogService.java            [Write + query audit log entries]
+│
+├── dto/
+│   ├── AdminMetrics.java               [Platform metrics DTO]
+│   ├── AdminTenantDetailResponse.java
+│   ├── AdminTenantListResponse.java
+│   ├── AdminUserSearchResponse.java
+│   ├── ChangeTenantPlanRequest.java
+│   ├── ChangeTenantStatusRequest.java
+│   └── AuditLogResponse.java
+│
+├── mapper/
+│   └── AdminMapper.java
+│
+└── controller/
+    ├── AdminTenantController.java      [Tenant management]
+    ├── AdminUserController.java        [Cross-tenant user management]
+    ├── AdminMetricsController.java     [Platform metrics]
+    └── AuditLogController.java         [Audit trail queries]
+
+================================================================================
+                    MODULE: mtbs-app  (Boot Entry Point)
+================================================================================
+
+src/main/java/com/mtbs/
+│
+├── MultiTenantBillingSystemApplication.java   [Main @SpringBootApplication]
+│
+├── config/
+│   ├── JpaConfig.java                  [JPA + multitenancy setup]
+│   ├── QuartzConfig.java               [Quartz — PUBLIC schema JDBC store]
+│   ├── RedisConfig.java                [Redis cache + rate limiter templates]
+│   ├── SwaggerConfig.java              [OpenAPI / Swagger UI]
+│   ├── AsyncConfig.java                [TaskExecutor with TenantAwareTaskDecorator]
+│   └── WebMvcConfig.java               [MVC interceptors]
+│
+├── filter/
+│   └── MdcLoggingFilter.java           [MDC: tenantId, userId, requestId per request]
+│
+└── health/
+    └── HealthCheckController.java      [/actuator/health + custom checks]
+
+================================================================================
+                          RESOURCES (mtbs-app)
+================================================================================
+
+src/main/resources/
+├── application.yaml                    [Base configuration]
+├── application-dev.yaml                [Development overrides]
+└── application-prod.yaml               [Production overrides]
+
+================================================================================
+                         DATABASE MIGRATIONS (Flyway)
+================================================================================
+
+db/migration/
+├── public/                             [PUBLIC schema — runs once at startup]
+│   ├── V1__create_tenants.sql
+│   ├── V2__create_permissions.sql
+│   ├── V3__create_plans.sql
+│   ├── V4__seed_permissions.sql        [10 permission records]
+│   ├── V5__seed_plans.sql              [FREE, PRO, ENTERPRISE]
+│   ├── V6__seed_super_admin.sql        [platform_admins table]
+│   ├── V7__add_tenant_onboarding.sql
+│   └── V8__create_audit_log.sql        [NEW — immutable audit trail table]
+│
+└── tenant/                             [TENANT schema — runs per tenant on signup]
+    ├── V1__create_roles.sql
+    ├── V2__create_users.sql
+    ├── V3__create_refresh_tokens.sql
+    ├── V4__create_role_permissions.sql
+    ├── V5__create_subscriptions.sql
+    ├── V6__create_usage_records.sql
+    ├── V7__create_usage_summaries.sql
+    ├── V8__create_invoices.sql
+    ├── V9__create_invoice_line_items.sql
+    ├── V10__create_payments.sql        [+gateway_name, +gateway_metadata JSONB]
+    ├── V11__create_outbox_events.sql   [NEW — transactional outbox table]
+    ├── V12__seed_roles.sql             [OWNER, ADMIN, EMPLOYEE]
+    ├── V13__add_role_permissions_unique_constraint.sql
+    ├── V14__seed_role_permissions.sql
+    ├── V15__create_customers.sql
+    ├── V16__create_products.sql
+    ├── V17__create_business_invoices.sql
+    ├── V18__create_business_invoice_items.sql
+    └── V19__create_business_payments.sql
+
+NOTE: Quartz QRTZ_* tables REMOVED from tenant migrations.
+      Quartz now uses a single JDBC store in the PUBLIC schema (one set of tables,
+      tenant_id discriminator column). Eliminates per-tenant table explosion.
+
+================================================================================
+                         SCHEMA DISTRIBUTION
+================================================================================
+
+PUBLIC SCHEMA                   TENANT SCHEMAS
+──────────────────────────────────────────────────────────────────────────────
+tenants                         roles
+permissions                     users
+plans                           refresh_tokens
+platform_admins                 role_permissions
+tenant_onboarding               subscriptions
+audit_log              [NEW]    usage_records
+QRTZ_* (shared Quartz) [MOVED]  usage_summaries
+                                invoices
+                                invoice_line_items
+                                payments             (+gateway_name, +gateway_metadata)
+                                outbox_events        [NEW]
+                                customers
+                                products
+                                business_invoices
+                                business_invoice_items
+                                business_payments
+
+CROSS-SCHEMA NOTES:
+  - tenant.schema_name         -> PostgreSQL schema name (one per tenant)
+  - subscriptions.plan_id      -> public.plans.id (denormalized, no FK — correct)
+  - role_permissions.permission_id -> public.permissions.id (logical FK via cross-join)
+  - tenant_onboarding.tenant_id -> public.tenants.id (logical FK only)
+  - audit_log.actor_tenant_id  -> public.tenants.id (for cross-tenant audit tracing)
+
+================================================================================
+                         PERMISSIONS (10 TOTAL)
+================================================================================
+
+Name              Description
+──────────────────────────────────────────────────────────────────────────────
+TENANT_VIEW       View tenant details and settings
+TENANT_MANAGE     Update tenant settings and configurations
+USER_VIEW         View users within the tenant
+USER_MANAGE       Create and update users within the tenant
+USER_DELETE       Delete users from the tenant
+ROLE_VIEW         View roles and their permissions
+ROLE_MANAGE       Create, update and assign roles
+BILLING_MANAGE    Manage subscriptions, invoices and payments
+CUSTOMER_MANAGE   Create, view, update and delete customers
+PRODUCT_MANAGE    Create, view, update and deactivate products
+
+================================================================================
+                         ROLE PERMISSIONS
+================================================================================
+
+Role      | Permissions
+──────────────────────────────────────────────────────────────────────────────
+OWNER     | ALL 10 permissions
+ADMIN     | All except USER_DELETE, TENANT_MANAGE
+EMPLOYEE  | USER_VIEW only
+
+================================================================================
+                         PLAN LIMITS
+================================================================================
+
+Plan        | Price (M/A)   | Trial | Users | API Calls      | Storage
+──────────────────────────────────────────────────────────────────────────────
+FREE        | 0 / 0 INR     | 0     | 3     | 1,000/month    | 1 GB
+PRO         | 999 / 9999    | 14    | 25    | 50,000/month   | 20 GB
+ENTERPRISE  | 4999 / 49999  | 30    | -1    | -1 (unlimited) | 500 GB
+                                                  (-1 = unlimited)
+
+================================================================================
+                         USAGE METRICS
+================================================================================
+
+Metric        | Description
+──────────────────────────────────────────────────────────────────────────────
+API_CALLS     | Number of API calls made by the tenant per billing period
+ACTIVE_USERS  | Number of active users in the billing period
+STORAGE_GB    | Storage consumed in gigabytes
+
+================================================================================
+                         TEST SOURCES
+================================================================================
+
+src/test/java/com/mtbs/
+│
+├── MultiTenantBillingSystemApplicationTests.java   [Context load smoke test]
+│
+├── billing/
+│   ├── SubscriptionServiceTest.java                [@DataJpaTest — subscription lifecycle]
+│   ├── InvoiceServiceTest.java                     [@DataJpaTest — invoice generation]
+│   ├── PaymentServiceTest.java                     [Razorpay gateway mock tests]
+│   └── OutboxEventProcessorTest.java               [Outbox publish + idempotency]
+│
+├── auth/
+│   ├── AuthServiceTest.java                        [Login, token refresh, logout]
+│   └── RoleServiceTest.java                        [RBAC assignment tests]
+│
+├── tenant/
+│   └── TenantFlywayMigrationServiceTest.java       [Schema provisioning with Testcontainers]
+│
+├── business/
+│   ├── CustomerServiceTest.java
+│   └── BusinessInvoiceServiceTest.java
+│
+├── integration/
+│   ├── MultiTenancyIntegrationTest.java            [Testcontainers — real PG, schema isolation]
+│   ├── BillingFlowIntegrationTest.java             [Full billing cycle end-to-end]
+│   └── WebhookIntegrationTest.java                 [Razorpay webhook signature + flow]
+│
+└── arch/
+    └── ArchitectureRulesTest.java                  [ArchUnit — enforce module boundaries]
+
+================================================================================
+                         KEY ARCHITECTURAL CHANGES SUMMARY
+================================================================================
+
+CHANGE                          REASON
+──────────────────────────────────────────────────────────────────────────────
+Maven multi-module              Enforces bounded context boundaries,
+                                independent builds, path to microservices
+
+TenantAwareTaskDecorator        Fixes ThreadLocal blindspot in @Async,
+                                CompletableFuture, virtual threads
+
+Transactional Outbox Pattern    Eliminates dual-write inconsistency between
+(outbox_events table)           DB commit and event publish
+
+Quartz to PUBLIC schema         Removes QRTZ_* table explosion (was N tenants
+                                × 11 tables); single shared Quartz JDBC store
+
+NotificationPort interface      Decouples email/SMS/webhook behind a port;
+                                swap or add providers without core changes
+
+gateway_metadata JSONB on       Future-proofs multi-gateway support (Stripe,
+payments table                  PayPal) without schema changes
+
+CQRS read models                Separate read-path for dashboards and reports;
+                                can point to read replica for heavy queries
+
+AuditLog entity (PUBLIC)        Immutable audit trail — who did what, when;
+                                required for billing compliance
+
+MapStruct mappers               Replaces manual mapping; eliminates PlanMapper
+                                misplaced in dto/; compile-time safety
+
+ArchUnit boundary tests         Enforces that modules don't cross-import;
+                                prevents ball-of-mud regression
+
+Testcontainers integration      Real PostgreSQL in CI; actual schema switching
+tests                           tested, not mocked
+
+================================================================================
+                              END OF FILE
+================================================================================

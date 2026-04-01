@@ -1,0 +1,4042 @@
+================================================================================
+                     MULTITENANT BILLING SYSTEM
+                     PROJECT CODEBASE REFERENCE
+================================================================================
+
+Generated: 2026-03-27
+Java Version: 17
+Spring Boot: 3.4.3
+Database: PostgreSQL (schema-per-tenant multi-tenancy)
+Build Tool: Maven
+Package: com.mtbs
+
+================================================================================
+                          MODULE ARCHITECTURE
+================================================================================
+
+com.mtbs/
+├── app/            [Application Core - Config, Filters, Health, Exception]
+├── auth/           [Authentication & Authorization - JWT, Security, Users, Roles]
+├── admin/          [Platform Administration - Cross-tenant management]
+├── billing/        [Platform Billing - Subscriptions, Invoices, Payments, Usage]
+├── tenant/         [Tenant Management - Onboarding, Plans, Flyway migrations]
+├── business/       [Business Billing - Customers, Products, Invoices, Payments]
+├── notification/   [Email Notifications - Thymeleaf templates]
+└── shared/         [Shared Utilities - Entities, Enums, Exceptions, Multitenancy]
+
+ARCHITECTURE OVERVIEW:
+  - Schema-per-tenant PostgreSQL isolation via Hibernate SCHEMA multi-tenancy
+  - Two billing domains: platform billing (tenant pays platform) and
+    business billing (tenant bills their own customers)
+  - Dual auth surfaces: per-tenant JWT (cookie + refresh token) and
+    platform admin auth (Redis-backed refresh tokens)
+  - Razorpay as payment processor (INR currency)
+  - Quartz scheduler for background jobs across all tenant schemas
+  - Flyway migrations split across public/ (platform) and tenant/ (per-tenant)
+
+================================================================================
+                          TABLE OF CONTENTS
+================================================================================
+
+APP MODULE
+  1.   com.mtbs.app.MultiTenantBillingSystemApplication         [APP-1]
+  2.   com.mtbs.app.config.JpaConfig                            [APP-2]
+  3.   com.mtbs.app.config.QuartzConfig                         [APP-3]
+  4.   com.mtbs.app.config.RedisConfig                          [APP-4]
+  5.   com.mtbs.app.config.SwaggerConfig                        [APP-5]
+  6.   com.mtbs.app.config.WebMvcConfig                         [APP-6]
+  7.   com.mtbs.app.config.AsyncConfig                          [APP-7]
+  8.   com.mtbs.app.filter.MdcLoggingFilter                     [APP-8]
+  9.   com.mtbs.app.filter.MdcSecurityEnrichmentFilter          [APP-9]
+ 10.   com.mtbs.app.exception.GlobalExceptionHandler             [APP-10]
+ 11.   com.mtbs.app.health.HealthCheckController                [APP-11]
+
+AUTH MODULE - ENTITIES
+ 12.   com.mtbs.auth.entity.User                               [AUTH-1]
+ 13.   com.mtbs.auth.entity.Role                               [AUTH-2]
+ 14.   com.mtbs.auth.entity.Permission                         [AUTH-3]
+ 15.   com.mtbs.auth.entity.RolePermission                     [AUTH-4]
+ 16.   com.mtbs.auth.entity.RefreshToken                       [AUTH-5]
+ 17.   com.mtbs.auth.entity.PlatformAdmin                       [AUTH-6]
+
+AUTH MODULE - REPOSITORIES
+ 18.   com.mtbs.auth.repository.UserRepository                  [AUTH-7]
+ 19.   com.mtbs.auth.repository.RoleRepository                  [AUTH-8]
+ 20.   com.mtbs.auth.repository.PermissionRepository            [AUTH-9]
+ 21.   com.mtbs.auth.repository.RolePermissionRepository        [AUTH-10]
+ 22.   com.mtbs.auth.repository.RefreshTokenRepository          [AUTH-11]
+ 23.   com.mtbs.auth.repository.PlatformAdminRepository          [AUTH-12]
+
+AUTH MODULE - SERVICES
+ 24.   com.mtbs.auth.service.AuthService                       [AUTH-13]
+ 25.   com.mtbs.auth.service.TenantAuthService                 [AUTH-14]
+ 26.   com.mtbs.auth.service.SuperAdminAuthService             [AUTH-15]
+ 27.   com.mtbs.auth.service.SignupService                     [AUTH-16]
+ 28.   com.mtbs.auth.service.UserService                       [AUTH-17]
+ 29.   com.mtbs.auth.service.UserScopedService                 [AUTH-18]
+ 30.   com.mtbs.auth.service.RoleService                       [AUTH-19]
+ 31.   com.mtbs.auth.service.PermissionService                 [AUTH-20]
+ 32.   com.mtbs.auth.service.RefreshTokenService                [AUTH-21]
+ 33.   com.mtbs.auth.service.PasswordResetService              [AUTH-22]
+ 34.   com.mtbs.auth.service.LoginRateLimiter                  [AUTH-23]
+
+AUTH MODULE - SECURITY
+ 35.   com.mtbs.auth.security.JwtTokenProvider                 [AUTH-24]
+ 36.   com.mtbs.auth.security.JwtAuthenticationFilter          [AUTH-25]
+ 37.   com.mtbs.auth.security.JwtAuthenticationEntryPoint      [AUTH-26]
+ 38.   com.mtbs.auth.security.UserPrincipal                    [AUTH-27]
+ 39.   com.mtbs.auth.config.SecurityConfig                     [AUTH-28]
+
+AUTH MODULE - OTHER
+ 40.   com.mtbs.auth.aspect.UsageTrackingAspect               [AUTH-29]
+ 41.   com.mtbs.auth.event.AuthEventPublisher                  [AUTH-30]
+
+AUTH MODULE - CONTROLLERS
+ 42.   com.mtbs.auth.controller.auth.AuthController            [AUTH-31]
+ 43.   com.mtbs.auth.controller.auth.AdminAuthController       [AUTH-32]
+ 44.   com.mtbs.auth.controller.platform.UserController        [AUTH-33]
+ 45.   com.mtbs.auth.controller.platform.RoleController        [AUTH-34]
+ 46.   com.mtbs.auth.controller.platform.PermissionController   [AUTH-35]
+
+AUTH MODULE - DTOs (Auth)
+ 47.   com.mtbs.auth.dto.auth.AuthResponse                      [AUTH-36]
+ 48.   com.mtbs.auth.dto.auth.LoginRequest                     [AUTH-37]
+ 49.   com.mtbs.auth.dto.auth.LogoutRequest                    [AUTH-38]
+ 50.   com.mtbs.auth.dto.auth.RefreshTokenRequest              [AUTH-39]
+ 51.   com.mtbs.auth.dto.auth.ForgotPasswordRequest            [AUTH-40]
+ 52.   com.mtbs.auth.dto.auth.ResetPasswordRequest             [AUTH-41]
+ 53.   com.mtbs.auth.dto.auth.SignupRequest                    [AUTH-42]
+ 54.   com.mtbs.auth.dto.auth.SuperAdminLoginRequest           [AUTH-43]
+ 55.   com.mtbs.auth.dto.auth.UserProfileResponse              [AUTH-44]
+
+AUTH MODULE - DTOs (User)
+ 56.   com.mtbs.auth.dto.user.UserResponse                     [AUTH-45]
+ 57.   com.mtbs.auth.dto.user.CreateUserRequest                [AUTH-46]
+ 58.   com.mtbs.auth.dto.user.UpdateUserRequest                [AUTH-47]
+ 59.   com.mtbs.auth.dto.user.UpdateOwnProfileRequest           [AUTH-48]
+ 60.   com.mtbs.auth.dto.user.ChangeUserRoleRequest            [AUTH-49]
+ 61.   com.mtbs.auth.dto.user.ChangeUserStatusRequest          [AUTH-50]
+
+AUTH MODULE - DTOs (Role)
+ 62.   com.mtbs.auth.dto.role.RoleResponse                     [AUTH-51]
+ 63.   com.mtbs.auth.dto.role.RoleDetailResponse              [AUTH-52]
+ 64.   com.mtbs.auth.dto.role.CreateRoleRequest                [AUTH-53]
+ 65.   com.mtbs.auth.dto.role.UpdateRoleRequest                [AUTH-54]
+ 66.   com.mtbs.auth.dto.role.AssignPermissionRequest          [AUTH-55]
+
+AUTH MODULE - DTOs (Permission)
+ 67.   com.mtbs.auth.dto.permission.PermissionResponse         [AUTH-56]
+ 68.   com.mtbs.auth.dto.permission.CreatePermissionRequest    [AUTH-57]
+
+ADMIN MODULE
+ 69.   com.mtbs.admin.service.AdminTenantService               [ADM-1]
+ 70.   com.mtbs.admin.service.AdminUserService                 [ADM-2]
+ 71.   com.mtbs.admin.service.AdminMetricsService               [ADM-3]
+ 72.   com.mtbs.admin.service.AdminTenantScopedService          [ADM-4]
+ 73.   com.mtbs.admin.controller.AdminTenantController         [ADM-5]
+ 74.   com.mtbs.admin.controller.AdminUserController           [ADM-6]
+ 75.   com.mtbs.admin.controller.AdminMetricsController        [ADM-7]
+ 76.   com.mtbs.admin.dto.AdminTenantListResponse              [ADM-8]
+ 77.   com.mtbs.admin.dto.AdminTenantDetailResponse            [ADM-9]
+ 78.   com.mtbs.admin.dto.AdminUserSearchResponse              [ADM-10]
+ 79.   com.mtbs.admin.dto.AdminMetrics                        [ADM-11]
+ 80.   com.mtbs.admin.dto.ChangeTenantPlanRequest             [ADM-12]
+ 81.   com.mtbs.admin.dto.ChangeTenantStatusRequest            [ADM-13]
+
+TENANT MODULE - ENTITIES
+ 82.   com.mtbs.tenant.entity.Tenant                          [TEN-1]
+ 83.   com.mtbs.tenant.entity.Plan                            [TEN-2]
+ 84.   com.mtbs.tenant.entity.TenantOnboarding                [TEN-3]
+
+TENANT MODULE - ENUMS
+ 85.   com.mtbs.tenant.enums.KycStatus                       [TEN-4]
+ 86.   com.mtbs.tenant.enums.BusinessType                     [TEN-5]
+
+TENANT MODULE - REPOSITORIES
+ 87.   com.mtbs.tenant.repository.TenantRepository             [TEN-6]
+ 88.   com.mtbs.tenant.repository.PlanRepository               [TEN-7]
+ 89.   com.mtbs.tenant.repository.TenantOnboardingRepository   [TEN-8]
+
+TENANT MODULE - SERVICES
+ 90.   com.mtbs.tenant.service.TenantService                  [TEN-9]
+ 91.   com.mtbs.tenant.service.PlanService                    [TEN-10]
+ 92.   com.mtbs.tenant.service.PlanLimitService               [TEN-11]
+ 93.   com.mtbs.tenant.service.TenantFlywayMigrationService    [TEN-12]
+ 94.   com.mtbs.tenant.service.onboarding.OnboardingService   [TEN-13]
+ 95.   com.mtbs.tenant.service.onboarding.OnboardingScopedService [TEN-14]
+ 96.   com.mtbs.tenant.service.onboarding.OnboardingCompletionService [TEN-15]
+
+TENANT MODULE - OTHER
+ 97.   com.mtbs.tenant.config.FlywayConfig                   [TEN-16]
+ 98.   com.mtbs.tenant.interceptor.PlanLimitInterceptor       [TEN-17]
+ 99.   com.mtbs.tenant.mapper.PlanMapper                      [TEN-18]
+
+TENANT MODULE - CONTROLLERS
+100.   com.mtbs.tenant.controller.TenantController            [TEN-19]
+101.   com.mtbs.tenant.controller.OnboardingController        [TEN-20]
+102.   com.mtbs.tenant.controller.platform.PlanController     [TEN-21]
+
+TENANT MODULE - DTOs (Tenant)
+103.   com.mtbs.tenant.dto.tenant.TenantResponse               [TEN-22]
+104.   com.mtbs.tenant.dto.tenant.TenantSchemaInfoResponse    [TEN-23]
+105.   com.mtbs.tenant.dto.tenant.TenantStatusResponse        [TEN-24]
+106.   com.mtbs.tenant.dto.tenant.UpdateTenantRequest         [TEN-25]
+
+TENANT MODULE - DTOs (Plan)
+107.   com.mtbs.tenant.dto.plan.PlanResponse                   [TEN-26]
+108.   com.mtbs.tenant.dto.plan.CreatePlanRequest              [TEN-27]
+109.   com.mtbs.tenant.dto.plan.UpdatePlanRequest              [TEN-28]
+110.   com.mtbs.tenant.dto.plan.PlanLimits                    [TEN-29]
+
+BILLING MODULE - ENTITIES
+111.   com.mtbs.billing.entity.Subscription                    [BIL-1]
+112.   com.mtbs.billing.entity.Invoice                        [BIL-2]
+113.   com.mtbs.billing.entity.InvoiceLineItem                 [BIL-3]
+114.   com.mtbs.billing.entity.Payment                         [BIL-4]
+115.   com.mtbs.billing.entity.UsageRecord                     [BIL-5]
+116.   com.mtbs.billing.entity.UsageSummary                    [BIL-6]
+
+BILLING MODULE - REPOSITORIES
+117.   com.mtbs.billing.repository.SubscriptionRepository       [BIL-7]
+118.   com.mtbs.billing.repository.InvoiceRepository           [BIL-8]
+119.   com.mtbs.billing.repository.InvoiceLineItemRepository   [BIL-9]
+120.   com.mtbs.billing.repository.PaymentRepository           [BIL-10]
+121.   com.mtbs.billing.repository.UsageRecordRepository       [BIL-11]
+122.   com.mtbs.billing.repository.UsageSummaryRepository       [BIL-12]
+
+BILLING MODULE - SERVICES
+123.   com.mtbs.billing.service.SubscriptionService            [BIL-13]
+124.   com.mtbs.billing.service.InvoiceService                 [BIL-14]
+125.   com.mtbs.billing.service.PaymentService                 [BIL-15]
+126.   com.mtbs.billing.service.UsageService                   [BIL-16]
+127.   com.mtbs.billing.service.InvoicePdfService              [BIL-17]
+128.   com.mtbs.billing.service.TenantBillingDashboardService  [BIL-18]
+
+BILLING MODULE - GATEWAY
+129.   com.mtbs.billing.gateway.PaymentGatewayPort             [BIL-19]
+130.   com.mtbs.billing.gateway.RazorpayPaymentGateway         [BIL-20]
+
+BILLING MODULE - SCHEDULERS
+131.   com.mtbs.billing.scheduler.job.BillingCycleJob          [BIL-21]
+132.   com.mtbs.billing.scheduler.job.SubscriptionExpiryJob    [BIL-22]
+133.   com.mtbs.billing.scheduler.job.TrialExpiryJob          [BIL-23]
+134.   com.mtbs.billing.scheduler.job.TrialEndingSoonJob      [BIL-24]
+135.   com.mtbs.billing.scheduler.job.PaymentRetryJob          [BIL-25]
+136.   com.mtbs.billing.scheduler.job.UsageAggregationJob      [BIL-26]
+
+BILLING MODULE - OTHER
+137.   com.mtbs.billing.aspect.FeatureGateAspect               [BIL-27]
+138.   com.mtbs.billing.event.BillingEventPublisher            [BIL-28]
+139.   com.mtbs.billing.event.SubscriptionEventPublisher       [BIL-29]
+
+BILLING MODULE - CONTROLLERS
+140.   com.mtbs.billing.controller.SubscriptionController      [BIL-30]
+141.   com.mtbs.billing.controller.InvoiceController          [BIL-31]
+142.   com.mtbs.billing.controller.PaymentController           [BIL-32]
+143.   com.mtbs.billing.controller.DashboardController        [BIL-33]
+144.   com.mtbs.billing.controller.UsageController            [BIL-34]
+145.   com.mtbs.billing.controller.webhook.RazorpayWebhookController [BIL-35]
+
+BILLING MODULE - DTOs
+146.   com.mtbs.billing.dto.InvoiceResponse                    [BIL-36]
+147.   com.mtbs.billing.dto.InvoiceLineItemResponse             [BIL-37]
+148.   com.mtbs.billing.dto.PaymentResponse                    [BIL-38]
+149.   com.mtbs.billing.dto.OrderResponse                     [BIL-39]
+150.   com.mtbs.billing.dto.UsageResponse                     [BIL-40]
+151.   com.mtbs.billing.dto.UsageLimitsResponse               [BIL-41]
+152.   com.mtbs.billing.dto.RefundRequest                      [BIL-42]
+153.   com.mtbs.billing.dto.RefundResult                       [BIL-43]
+154.   com.mtbs.billing.dto.VerifyPaymentRequest               [BIL-44]
+155.   com.mtbs.billing.dto.TenantBillingDashboard             [BIL-45]
+
+BILLING MODULE - DTOs (Subscription)
+156.   com.mtbs.billing.dto.subscription.SubscriptionResponse   [BIL-46]
+157.   com.mtbs.billing.dto.subscription.ActivateSubscriptionRequest [BIL-47]
+158.   com.mtbs.billing.dto.subscription.CancelSubscriptionRequest [BIL-48]
+159.   com.mtbs.billing.dto.subscription.ChangePlanRequest     [BIL-49]
+
+BUSINESS MODULE - CUSTOMER
+160.   com.mtbs.business.customer.entity.Customer               [BUS-1]
+161.   com.mtbs.business.customer.repository.CustomerRepository [BUS-2]
+162.   com.mtbs.business.customer.service.CustomerService      [BUS-3]
+163.   com.mtbs.business.customer.controller.CustomerController [BUS-4]
+164.   com.mtbs.business.customer.dto.CustomerResponse         [BUS-5]
+165.   com.mtbs.business.customer.dto.CreateCustomerRequest    [BUS-6]
+166.   com.mtbs.business.customer.dto.UpdateCustomerRequest    [BUS-7]
+
+BUSINESS MODULE - PRODUCT
+167.   com.mtbs.business.product.entity.Product                 [BUS-8]
+168.   com.mtbs.business.product.repository.ProductRepository  [BUS-9]
+169.   com.mtbs.business.product.service.ProductService        [BUS-10]
+170.   com.mtbs.business.product.controller.ProductController  [BUS-11]
+171.   com.mtbs.business.product.dto.ProductResponse           [BUS-12]
+172.   com.mtbs.business.product.dto.CreateProductRequest      [BUS-13]
+173.   com.mtbs.business.product.dto.UpdateProductRequest      [BUS-14]
+
+BUSINESS MODULE - INVOICE
+174.   com.mtbs.business.invoice.entity.BusinessInvoice        [BUS-15]
+175.   com.mtbs.business.invoice.entity.BusinessInvoiceItem    [BUS-16]
+176.   com.mtbs.business.invoice.repository.BusinessInvoiceRepository [BUS-17]
+177.   com.mtbs.business.invoice.repository.BusinessInvoiceItemRepository [BUS-18]
+178.   com.mtbs.business.invoice.service.BusinessInvoiceService [BUS-19]
+179.   com.mtbs.business.invoice.service.BusinessInvoicePdfService [BUS-20]
+180.   com.mtbs.business.invoice.controller.BusinessInvoiceController [BUS-21]
+181.   com.mtbs.business.invoice.dto.BusinessInvoiceResponse   [BUS-22]
+182.   com.mtbs.business.invoice.dto.BusinessInvoiceItemResponse [BUS-23]
+183.   com.mtbs.business.invoice.dto.CreateBusinessInvoiceRequest [BUS-24]
+184.   com.mtbs.business.invoice.dto.AddLineItemRequest        [BUS-25]
+
+BUSINESS MODULE - PAYMENT
+185.   com.mtbs.business.payment.entity.BusinessPayment        [BUS-26]
+186.   com.mtbs.business.payment.repository.BusinessPaymentRepository [BUS-27]
+187.   com.mtbs.business.payment.service.BusinessPaymentService [BUS-28]
+188.   com.mtbs.business.payment.controller.BusinessPaymentController [BUS-29]
+189.   com.mtbs.business.payment.dto.BusinessPaymentResponse   [BUS-30]
+190.   com.mtbs.business.payment.dto.RecordPaymentRequest      [BUS-31]
+
+BUSINESS MODULE - REPORT
+191.   com.mtbs.business.report.service.BusinessReportService  [BUS-32]
+192.   com.mtbs.business.report.event.BusinessEventPublisher  [BUS-33]
+193.   com.mtbs.business.report.controller.BusinessReportController [BUS-34]
+194.   com.mtbs.business.report.dto.RevenueReportResponse      [BUS-35]
+195.   com.mtbs.business.report.dto.OutstandingReportResponse  [BUS-36]
+196.   com.mtbs.business.report.dto.MonthlyReportRow           [BUS-37]
+
+NOTIFICATION MODULE
+197.   com.mtbs.notification.service.NotificationService      [NOT-1]
+198.   com.mtbs.notification.config.EmailTemplateConfig       [NOT-2]
+
+SHARED MODULE - ENTITIES
+199.   com.mtbs.shared.entity.BaseEntity                      [SHD-1]
+200.   com.mtbs.shared.entity.AuditableEntity                 [SHD-2]
+
+SHARED MODULE - ENUMS
+201.   com.mtbs.shared.enums.auth.Status                      [SHD-3]
+202.   com.mtbs.shared.enums.plan.Plan                       [SHD-4]
+203.   com.mtbs.shared.enums.billing.BillingCycle            [SHD-5]
+204.   com.mtbs.shared.enums.billing.Currency                [SHD-6]
+205.   com.mtbs.shared.enums.billing.InvoiceStatus            [SHD-7]
+206.   com.mtbs.shared.enums.billing.LineItemType             [SHD-8]
+207.   com.mtbs.shared.enums.billing.PaymentMethod           [SHD-9]
+208.   com.mtbs.shared.enums.billing.PaymentStatus           [SHD-10]
+209.   com.mtbs.shared.enums.billing.SubscriptionStatus      [SHD-11]
+210.   com.mtbs.shared.enums.billing.UsageMetric              [SHD-12]
+211.   com.mtbs.shared.enums.notification.NotificationEvent   [SHD-13]
+
+SHARED MODULE - EXCEPTIONS
+212.   com.mtbs.shared.exception.BaseException                [SHD-14]
+213.   com.mtbs.shared.exception.ErrorCode                    [SHD-15]
+214.   com.mtbs.shared.exception.ResourceException             [SHD-16]
+215.   com.mtbs.shared.exception.AuthException                 [SHD-17]
+216.   com.mtbs.shared.exception.TenantException               [SHD-18]
+217.   com.mtbs.shared.exception.PaymentException             [SHD-19]
+218.   com.mtbs.shared.exception.TokenException               [SHD-20]
+
+SHARED MODULE - MULTITENANCY
+219.   com.mtbs.shared.multitenancy.TenantContext             [SHD-21]
+220.   com.mtbs.shared.multitenancy.TenantContextHolder       [SHD-22]
+221.   com.mtbs.shared.multitenancy.SchemaBasedMultiTenantConnectionProvider [SHD-23]
+222.   com.mtbs.shared.multitenancy.CurrentTenantIdentifierResolverImpl [SHD-24]
+223.   com.mtbs.shared.multitenancy.TenantAwareTaskDecorator  [SHD-25]
+
+SHARED MODULE - EVENTS
+224.   com.mtbs.shared.event.DomainEvent                      [SHD-26]
+225.   com.mtbs.shared.event.billing.BillingEvent             [SHD-27]
+226.   com.mtbs.shared.event.auth.AuthEvent                   [SHD-28]
+227.   com.mtbs.shared.event.auth.AuthNotificationEvent       [SHD-29]
+228.   com.mtbs.shared.event.business.BusinessEvent           [SHD-30]
+
+SHARED MODULE - ANNOTATIONS
+229.   com.mtbs.shared.annotation.FeatureGate                 [SHD-31]
+230.   com.mtbs.shared.annotation.TrackUsage                 [SHD-32]
+
+SHARED MODULE - CONSTANTS
+231.   com.mtbs.shared.constant.SecurityConstants             [SHD-33]
+232.   com.mtbs.shared.constant.ApiConstants                  [SHD-34]
+233.   com.mtbs.shared.constant.CookieConstants               [SHD-35]
+234.   com.mtbs.shared.constant.SchemaConstants               [SHD-36]
+
+SHARED MODULE - UTILITIES
+235.   com.mtbs.shared.util.SecurityUtils                    [SHD-37]
+236.   com.mtbs.shared.util.CookieUtils                      [SHD-38]
+
+SHARED MODULE - DTOs
+237.   com.mtbs.shared.dto.common.ApiResponse                 [SHD-39]
+238.   com.mtbs.shared.dto.common.PageResponse               [SHD-40]
+239.   com.mtbs.shared.dto.common.ErrorResponse               [SHD-41]
+
+SQL MIGRATIONS
+240.   PUBLIC SCHEMA MIGRATIONS (V1-V7)                       [SQL-1]
+241.   TENANT SCHEMA MIGRATIONS (V1-V19)                      [SQL-2]
+
+CONFIGURATION FILES
+242.   application.yaml                                        [CFG-1]
+243.   application-dev.yaml                                     [CFG-2]
+244.   application-prod.yaml                                   [CFG-3]
+
+POM.XML DEPENDENCIES                                           [POM-1]
+
+DEPENDENCY GRAPH                                               [DEG-1]
+
+================================================================================
+================================================================================
+================================================================================
+
+================================================================================
+                     APP MODULE (com.mtbs.app)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.app.MultiTenantBillingSystemApplication
+TAG: [APP-1]
+PURPOSE: Spring Boot application entry point
+================================================================================
+  - @SpringBootApplication with scanBasePackages = "com.mtbs"
+  - @EnableAsync for asynchronous @Async method execution
+  - Root application class
+
+================================================================================
+FILE: com.mtbs.app.config.JpaConfig
+TAG: [APP-2]
+PURPOSE: JPA/Hibernate configuration with multi-tenancy support
+================================================================================
+  - Configures Hibernate multi-tenant connection provider
+  - Configures CurrentTenantIdentifierResolver
+  - Configures AuditorEntityListener via hibernate.listeners.envers.autostore
+  - Sets up AuditorAware implementation for @CreatedBy/@LastModifiedBy
+  - JPA naming strategy: snake_case
+
+================================================================================
+FILE: com.mtbs.app.config.QuartzConfig
+TAG: [APP-3]
+PURPOSE: Quartz scheduler configuration
+================================================================================
+  - Configures SchedulerFactoryBean with JDBC JobStore
+  - Scheduler name: "MTBS Scheduler"
+  - Registers 6 jobs:
+    * BillingCycleJob - Daily at midnight
+    * SubscriptionExpiryJob - Hourly
+    * TrialExpiryJob - Daily at midnight
+    * TrialEndingSoonJob - Daily at 08:00 UTC
+    * PaymentRetryJob - Every 6 hours
+    * UsageAggregationJob - Hourly
+
+================================================================================
+FILE: com.mtbs.app.config.RedisConfig
+TAG: [APP-4]
+PURPOSE: Redis caching configuration
+================================================================================
+  - Creates RedisTemplate with custom ObjectMapper (default typing enabled)
+  - Configures RedisCacheManager with TTLs:
+    * plans: 1 hour
+    * usage: 5 minutes
+    * dashboard: 5 minutes
+    * admin-metrics: 15 minutes
+  - Default cache TTL: 10 minutes
+
+================================================================================
+FILE: com.mtbs.app.config.SwaggerConfig
+TAG: [APP-5]
+PURPOSE: OpenAPI/Swagger documentation configuration
+================================================================================
+  - API title: Multi-Tenant Billing System API
+  - API version: 1.0.0
+  - Configures OpenAPI 3 info
+  - Enables Swagger UI at /swagger-ui.html
+
+================================================================================
+FILE: com.mtbs.app.config.WebMvcConfig
+TAG: [APP-6]
+PURPOSE: Web MVC configuration with PlanLimitInterceptor
+================================================================================
+  - Registers MdcLoggingFilter (Ordered.HIGHEST_PRECEDENCE)
+  - Registers MdcSecurityEnrichmentFilter (Ordered.HIGHEST_PRECEDENCE + 1)
+  - Registers PlanLimitInterceptor for API rate limiting
+  - Excludes from interceptor: /api/auth/**, /api/plans/**, /api/webhooks/**,
+    /api/onboarding/**, /actuator/**
+
+================================================================================
+FILE: com.mtbs.app.config.AsyncConfig
+TAG: [APP-7]
+PURPOSE: Async task execution configuration
+================================================================================
+  - Implements AsyncConfigurer
+  - Creates ThreadPoolTaskExecutor:
+    * Core pool size: 5
+    * Max pool size: 20
+    * Queue capacity: 100
+    * Thread name prefix: "mtbs-async-"
+  - Uses TenantAwareTaskDecorator to propagate tenant context to async threads
+
+================================================================================
+FILE: com.mtbs.app.filter.MdcLoggingFilter
+TAG: [APP-8]
+PURPOSE: Adds request metadata to MDC for structured logging
+================================================================================
+  - Adds MDC keys: requestId, method, uri, tenantId, userId
+  - Generates UUID for requestId
+  - Extracts tenantId/userId from TenantContext
+  - Runs at HIGHEST_PRECEDENCE
+
+================================================================================
+FILE: com.mtbs.app.filter.MdcSecurityEnrichmentFilter
+TAG: [APP-9]
+PURPOSE: Enriches MDC with security information from SecurityContext
+================================================================================
+  - Extracts tenantId, userId, role from SecurityUtils
+  - Adds to MDC for logging
+  - Runs after MdcLoggingFilter (HIGHEST_PRECEDENCE + 1)
+
+================================================================================
+FILE: com.mtbs.app.exception.GlobalExceptionHandler
+TAG: [APP-10]
+PURPOSE: Centralized exception handling for all REST endpoints
+================================================================================
+  HANDLED EXCEPTIONS:
+  - BaseException -> 400 Bad Request with error code
+  - MethodArgumentNotValidException -> 400 with field validation errors
+  - AccessDeniedException -> 403 Forbidden
+  - RazorpayException -> 500 Internal Server Error
+  - MissingRequestHeaderException -> 400 Bad Request
+  - HttpMessageNotReadableException -> 400 Bad Request
+  - Exception -> 500 Internal Server Error (fallback)
+
+================================================================================
+FILE: com.mtbs.app.health.HealthCheckController
+TAG: [APP-11]
+PURPOSE: Health check endpoint for load balancers
+================================================================================
+  - GET /api/health
+  - Returns simple "healthy" response
+
+================================================================================
+================================================================================
+                  AUTH MODULE (com.mtbs.auth)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.auth.entity.User
+TAG: [AUTH-1]
+PURPOSE: Tenant user entity (stored in tenant schema)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "users"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - name (String) - User display name
+    - email (String) - Unique email within tenant
+    - password (String) - BCrypt hashed password
+    - role (Role) - @ManyToOne relationship to Role
+    - status (Status) - ACTIVE, INACTIVE, SUSPENDED, REGISTERED,
+      PENDING_ONBOARDING, ONBOARDING_ABANDONED
+
+================================================================================
+FILE: com.mtbs.auth.entity.Role
+TAG: [AUTH-2]
+PURPOSE: Role entity for RBAC
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "roles"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - name (String) - Unique role name (OWNER, ADMIN, EMPLOYEE)
+  NOTE: System roles protected from modification/deletion
+
+================================================================================
+FILE: com.mtbs.auth.entity.Permission
+TAG: [AUTH-3]
+PURPOSE: Permission entity (stored in public schema)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "permissions", schema = "public")
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - name (String) - Unique permission name
+    - description (String) - Optional description
+
+================================================================================
+FILE: com.mtbs.auth.entity.RolePermission
+TAG: [AUTH-4]
+PURPOSE: Many-to-many join between roles and permissions
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "role_permissions"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - role (Role) - @ManyToOne to Role
+    - permission (Permission) - @ManyToOne to Permission
+
+================================================================================
+FILE: com.mtbs.auth.entity.RefreshToken
+TAG: [AUTH-5]
+PURPOSE: JWT refresh token storage (tenant schema)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "refresh_tokens"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - token (String) - Unique token value
+    - user (User) - @ManyToOne to User
+    - expiryDate (Instant) - Token expiration time
+    - revoked (Boolean) - Revocation flag
+
+================================================================================
+FILE: com.mtbs.auth.entity.PlatformAdmin
+TAG: [AUTH-6]
+PURPOSE: Super admin entity (stored in public schema)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "platform_admins", schema = "public")
+  FIELDS:
+    - email (String) - Unique email
+    - password (String) - BCrypt hashed password
+    - name (String) - Admin name
+    - role (String) - Role identifier (SUPER_ADMIN)
+    - active (boolean) - Active status
+    - createdAt (Instant) - Creation timestamp
+
+================================================================================
+FILE: com.mtbs.auth.repository.UserRepository
+TAG: [AUTH-7]
+PURPOSE: User data access
+================================================================================
+  KEY METHODS:
+    - findByEmail(String) - Find user by email
+    - findByEmailAndDeletedFalse(String) - Find active user by email
+    - findAllWithRole(Pageable) - JOIN FETCH role for pagination
+    - findByIdWithRole(Long) - Single user with role eager
+    - countByDeletedFalse() - Active user count for plan limits
+
+================================================================================
+FILE: com.mtbs.auth.repository.RoleRepository
+TAG: [AUTH-8]
+PURPOSE: Role data access
+================================================================================
+  KEY METHODS:
+    - findByName(String) - Find by name
+    - findByNameAndDeletedFalse(String) - Find active role
+    - existsByNameAndDeletedFalse(String) - Check existence
+
+================================================================================
+FILE: com.mtbs.auth.repository.PermissionRepository
+TAG: [AUTH-9]
+PURPOSE: Permission data access (public schema)
+================================================================================
+  KEY METHODS:
+    - findByName(String) - Find by name
+    - findByNameAndDeletedFalse(String) - Find active permission
+
+================================================================================
+FILE: com.mtbs.auth.repository.RolePermissionRepository
+TAG: [AUTH-10]
+PURPOSE: Role-permission mapping data access
+================================================================================
+  KEY METHODS:
+    - findByRoleIdAndPermissionId(Long, Long) - Check assignment exists
+    - findByRoleId(Long) - All permissions for a role
+
+================================================================================
+FILE: com.mtbs.auth.repository.RefreshTokenRepository
+TAG: [AUTH-11]
+PURPOSE: Refresh token data access
+================================================================================
+  KEY METHODS:
+    - findByTokenAndDeletedFalse(String) - Find token
+    - findByUserIdAndDeletedFalse(Long) - All tokens for user
+    - revokeAllByUserId(Long) - Revoke all user tokens
+
+================================================================================
+FILE: com.mtbs.auth.repository.PlatformAdminRepository
+TAG: [AUTH-12]
+PURPOSE: Platform admin data access (public schema)
+================================================================================
+  KEY METHODS:
+    - findByEmailAndActiveTrue(String) - Find active admin by email
+    - existsByEmail(String) - Check email exists
+
+================================================================================
+FILE: com.mtbs.auth.service.AuthService
+TAG: [AUTH-13]
+PURPOSE: Tenant auth orchestrator (public schema routing)
+================================================================================
+  KEY METHODS:
+    - login(LoginRequest) - Sets TenantContext before delegating to
+      TenantAuthService, records login attempt via LoginRateLimiter
+    - refreshAccessToken(RefreshTokenRequest) - Token refresh
+    - logout(LogoutRequest, Long) - Logout with context
+    - getCurrentUserProfile(Long, Long) - Get profile with context
+    - requestPasswordReset(ForgotPasswordRequest) - Initiates password reset
+    - resetPassword(ResetPasswordRequest) - Completes password reset
+
+================================================================================
+FILE: com.mtbs.auth.service.TenantAuthService
+TAG: [AUTH-14]
+PURPOSE: Tenant-scoped authentication operations
+================================================================================
+  KEY METHODS:
+    - createOwnerUserForSignup(SignupRequest, Tenant) - Creates OWNER role user
+      with default permissions during signup
+    - loginInTenantSchema(LoginRequest, Tenant, String, String) - Validates
+      credentials, creates JWT, handles failed attempts
+    - refreshInTenantSchema(RefreshTokenRequest, Tenant) - Validates and rotates
+      refresh token
+    - logoutInTenantSchema(String) - Revokes refresh token
+    - getCurrentUserProfile(Long, Tenant) - Returns user profile with permissions
+
+================================================================================
+FILE: com.mtbs.auth.service.SuperAdminAuthService
+TAG: [AUTH-15]
+PURPOSE: Platform super admin authentication
+================================================================================
+  KEY METHODS:
+    - login(String, String) - Admin login with JWT generation
+      (7-day validity, Redis-backed refresh token)
+    - refreshAdminToken(String) - Refresh admin token using Redis
+    - logout(String) - Revoke Redis refresh token
+
+================================================================================
+FILE: com.mtbs.auth.service.SignupService
+TAG: [AUTH-16]
+PURPOSE: Handles Phase 0 onboarding (account creation)
+================================================================================
+  KEY METHODS:
+    - signup(SignupRequest) - Complete signup flow: validates email uniqueness,
+      creates Tenant in public schema, creates onboarding tracking record,
+      generates schema name, triggers FlywayMigrationService
+    - saveTenant(SignupRequest, String, String) - Creates Tenant in public schema
+    - saveOnboardingRecord(Long) - Creates onboarding tracking record
+
+================================================================================
+FILE: com.mtbs.auth.service.UserService
+TAG: [AUTH-17]
+PURPOSE: User management operations
+================================================================================
+  KEY METHODS:
+    - getAllUsers(Pageable) - Paginated list with role
+    - getUserById(Long) - Single user
+    - createUser(CreateUserRequest) - Delegates to UserScopedService
+    - updateUser(Long, UpdateUserRequest) - Delegates to UserScopedService
+    - deleteUser(Long) - Soft delete
+    - changeUserRole(Long, ChangeUserRoleRequest) - Change role
+    - changeUserStatus(Long, ChangeUserStatusRequest) - Suspend/activate
+    - getMyProfile() - Current user profile
+    - updateMyProfile(UpdateOwnProfileRequest) - Update own profile
+
+================================================================================
+FILE: com.mtbs.auth.service.UserScopedService
+TAG: [AUTH-18]
+PURPOSE: Tenant-scoped user write operations
+================================================================================
+  KEY METHODS:
+    - saveNewUser(CreateUserRequest, PasswordEncoder) - Creates user with
+      @FeatureGate(UsageMetric.ACTIVE_USERS) to enforce plan limit
+    - updateExistingUser(Long, UpdateUserRequest) - Update user details
+    - changeRole(Long, ChangeUserRoleRequest) - Change role
+    - changeStatus(Long, Status, Long) - Change status
+    - updateProfile(Long, UpdateOwnProfileRequest, PasswordEncoder) - Update profile
+    - softDeleteUser(Long, Long) - Soft delete with self-deletion prevention
+
+================================================================================
+FILE: com.mtbs.auth.service.RoleService
+TAG: [AUTH-19]
+PURPOSE: Role and permission management
+================================================================================
+  CONSTANTS:
+    - SYSTEM_ROLES = {OWNER, ADMIN, EMPLOYEE} - Protected from modification
+  KEY METHODS:
+    - getAllRoles() - List all roles
+    - getRoleById(Long) - Single role
+    - createRole(CreateRoleRequest) - Create new role
+    - updateRole(Long, UpdateRoleRequest) - Update role
+    - deleteRole(Long) - Delete role (blocks system roles)
+    - assignPermissionToRole(Long, AssignPermissionRequest) - Add permission
+    - removePermissionFromRole(Long, Long) - Remove permission
+    - getRolePermissions(Long) - Get all permissions for role
+
+================================================================================
+FILE: com.mtbs.auth.service.PermissionService
+TAG: [AUTH-20]
+PURPOSE: Permission management (public schema)
+================================================================================
+  SYSTEM_PERMISSIONS:
+    TENANT_VIEW, TENANT_MANAGE, USER_VIEW, USER_MANAGE, USER_DELETE,
+    ROLE_VIEW, ROLE_MANAGE, BILLING_MANAGE, CUSTOMER_MANAGE, PRODUCT_MANAGE
+
+================================================================================
+FILE: com.mtbs.auth.service.RefreshTokenService
+TAG: [AUTH-21]
+PURPOSE: Refresh token lifecycle management
+================================================================================
+  CONSTANTS:
+    - REFRESH_TOKEN_VALIDITY_DAYS = 7
+  KEY METHODS:
+    - createRefreshToken(User) - Creates new refresh token with 7-day expiry
+    - validateRefreshToken(String) - Validates token, checks expiry and revocation
+    - revokeToken(String) - Revokes a specific token
+    - revokeAllUserTokens(User) - Revokes all tokens for user (logout all devices)
+
+================================================================================
+FILE: com.mtbs.auth.service.PasswordResetService
+TAG: [AUTH-22]
+PURPOSE: Password reset flow with Redis token storage
+================================================================================
+  REDIS KEY FORMAT: pwd_reset:{tenantId}:{userId}:{token}
+  CONFIGURABLE: app.password-reset.token-ttl-minutes (default: 15 min)
+  KEY METHODS:
+    - requestPasswordReset(Long tenantId, String email) - Generates token,
+      stores in Redis, sends email
+    - resetPassword(Long tenantId, String token, String newPassword) - Validates
+      token from Redis, updates password
+
+================================================================================
+FILE: com.mtbs.auth.service.LoginRateLimiter
+TAG: [AUTH-23]
+PURPOSE: Redis-backed rate limiting for login attempts
+================================================================================
+  CONFIGURATION:
+    - app.auth.rate-limit.max-attempts (default: 5)
+    - app.auth.rate-limit.window-minutes (default: 15)
+  REDIS KEY: login_attempts:{ip}
+  KEY METHODS:
+    - checkBlocked(String ip) - Throws AUTH_1007 (429 Too Many Requests) if locked out
+    - recordFailure(String ip) - Increments counter, sets expiry
+    - clearFailures(String ip) - Clears on successful login
+
+================================================================================
+FILE: com.mtbs.auth.security.JwtTokenProvider
+TAG: [AUTH-24]
+PURPOSE: JWT token generation and validation
+================================================================================
+  CONFIGURATION:
+    - jwt.secret - Base64 encoded secret key
+    - jwt.expiration - Token expiration (15 min for tenant, 7 days for admin)
+    - jwt.refresh-expiration - Refresh token expiration
+  KEY METHODS:
+    - generateToken(Long userId, Long tenantId, String schemaName, String email,
+      List<String> authorities) - Tenant user token
+    - generateSuperAdminToken(PlatformAdmin) - Super admin token
+    - isSuperAdminToken(Claims) - Check if token is super admin
+    - getUserIdFromToken(String) - Extract user ID
+    - getTenantIdFromToken(String) - Extract tenant ID
+    - getSchemaNameFromToken(String) - Extract schema name
+    - getAuthoritiesFromToken(String) - Extract permissions
+    - validateToken(String) - Validates signature and expiry
+    - isTokenExpired(String) - Check expiry
+
+================================================================================
+FILE: com.mtbs.auth.security.JwtAuthenticationFilter
+TAG: [AUTH-25]
+PURPOSE: JWT authentication filter - sets TenantContext from JWT claims
+================================================================================
+  FLOW:
+    1. Extract JWT from cookie (access_token) or Authorization header (Bearer)
+    2. Validate token
+    3. For super admin: set authentication without TenantContext
+    4. For tenant users: set TenantContext.setCurrentSchema(schemaName) and
+       TenantContext.setTenantId(tenantId) BEFORE chain.doFilter()
+    5. In finally block: Always clear TenantContext.clear()
+
+================================================================================
+FILE: com.mtbs.auth.security.JwtAuthenticationEntryPoint
+TAG: [AUTH-26]
+PURPOSE: Returns 401 Unauthorized for unauthenticated requests
+================================================================================
+
+================================================================================
+FILE: com.mtbs.auth.security.UserPrincipal
+TAG: [AUTH-27]
+PURPOSE: UserDetails implementation for Spring Security
+================================================================================
+  IMPLEMENTS: UserDetails
+  FIELDS:
+    - id (Long)
+    - email (String)
+    - tenantId (Long)
+    - schemaName (String)
+    - authorities (Collection<? extends GrantedAuthority>)
+    - isSuperAdmin (boolean)
+
+================================================================================
+FILE: com.mtbs.auth.config.SecurityConfig
+TAG: [AUTH-28]
+PURPOSE: Spring Security configuration
+================================================================================
+  PUBLIC URLs:
+    - /api/auth/** (except /api/auth/forgot-password, /api/auth/reset-password)
+    - /api/admin/auth/login
+    - /api/admin/auth/refresh
+    - /api/health
+    - /api/plans/**
+    - /api/webhooks/**
+    - /swagger-ui/**
+    - /v3/api-docs/**
+    - /actuator/**
+  PROTECTED:
+    - /api/onboarding/** (authenticated)
+    - /api/admin/** (SUPER_ADMIN only)
+    - /api/** (requires authentication)
+  FEATURES:
+    - CORS: http://localhost:3000
+    - Session: STATELESS
+    - Password encoder: BCrypt
+    - JwtAuthenticationFilter added before UsernamePasswordAuthenticationFilter
+
+================================================================================
+FILE: com.mtbs.auth.aspect.UsageTrackingAspect
+TAG: [AUTH-29]
+PURPOSE: AOP aspect for @TrackUsage annotation
+================================================================================
+  JOINS: All methods annotated with @TrackUsage
+  LOGIC: Extracts UsageMetric from annotation, calls UsageService.recordUsage()
+  INTENTIONALLY EMPTY: Actual usage tracking implementation (marker aspect)
+
+================================================================================
+FILE: com.mtbs.auth.event.AuthEventPublisher
+TAG: [AUTH-30]
+PURPOSE: Publishes authentication events for notifications
+================================================================================
+  KEY METHODS:
+    - publishUserRegistered(Long tenantId, String email, String name) - Fires
+      USER_REGISTERED event
+    - publishLoginAlert(Long tenantId, String email, String name, String ip,
+      String device) - Fires USER_LOGIN event
+    - publishPasswordChanged(Long tenantId, String email, String name,
+      String ip, String device) - Fires PASSWORD_CHANGED event
+
+================================================================================
+FILE: com.mtbs.auth.controller.auth.AuthController
+TAG: [AUTH-31]
+PURPOSE: Main authentication controller for tenant users
+================================================================================
+  ENDPOINTS:
+    - POST /api/auth/signup - Create tenant account and initial user
+    - POST /api/auth/login - Authenticate user (with rate limiting)
+    - POST /api/auth/refresh - Refresh access token
+    - POST /api/auth/logout - Revoke tokens
+    - GET /api/auth/me - Get current user profile
+    - POST /api/auth/forgot-password - Request password reset
+    - POST /api/auth/reset-password - Reset password with token
+
+================================================================================
+FILE: com.mtbs.auth.controller.auth.AdminAuthController
+TAG: [AUTH-32]
+PURPOSE: Platform super admin authentication controller
+================================================================================
+  ENDPOINTS:
+    - POST /api/admin/auth/login - Super admin login
+    - POST /api/admin/auth/refresh - Refresh admin token
+    - POST /api/admin/auth/logout - Admin logout (requires SUPER_ADMIN)
+    - GET /api/admin/auth/me - Get admin profile (requires SUPER_ADMIN)
+
+================================================================================
+FILE: com.mtbs.auth.controller.platform.UserController
+TAG: [AUTH-33]
+PURPOSE: User management within a tenant
+================================================================================
+  ENDPOINTS:
+    - GET /api/users - List all users (paginated, requires USER_VIEW)
+    - GET /api/users/{id} - Get user by ID (requires USER_VIEW)
+    - POST /api/users - Create new user (requires USER_MANAGE)
+    - PUT /api/users/{id} - Update user (requires USER_MANAGE)
+    - DELETE /api/users/{id} - Soft delete user (requires USER_DELETE)
+    - PUT /api/users/{id}/role - Change user role (requires USER_MANAGE)
+    - PUT /api/users/{id}/status - Suspend/activate user (requires USER_MANAGE)
+    - GET /api/users/me - Get current user profile
+    - PUT /api/users/me - Update own profile
+
+================================================================================
+FILE: com.mtbs.auth.controller.platform.RoleController
+TAG: [AUTH-34]
+PURPOSE: Role management within a tenant
+================================================================================
+  ENDPOINTS:
+    - GET /api/roles - List all roles (requires ROLE_VIEW)
+    - GET /api/roles/{id} - Get role details (requires ROLE_VIEW)
+    - POST /api/roles - Create role (requires ROLE_MANAGE)
+    - PUT /api/roles/{id} - Update role (requires ROLE_MANAGE)
+    - DELETE /api/roles/{id} - Delete role (requires ROLE_MANAGE)
+    - GET /api/roles/{id}/permissions - Get permissions for role (requires ROLE_VIEW)
+    - POST /api/roles/{id}/permissions - Assign permission (requires ROLE_MANAGE)
+    - DELETE /api/roles/{id}/permissions/{permId} - Remove permission
+      (requires ROLE_MANAGE)
+
+================================================================================
+FILE: com.mtbs.auth.controller.platform.PermissionController
+TAG: [AUTH-35]
+PURPOSE: Permission management (platform-wide)
+================================================================================
+  ENDPOINTS:
+    - GET /api/permissions - List all permissions
+    - GET /api/permissions/{id} - Get permission details
+    - POST /api/permissions - Create permission (requires SUPER_ADMIN)
+    - DELETE /api/permissions/{id} - Delete permission (requires SUPER_ADMIN)
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.AuthResponse
+TAG: [AUTH-36]
+PURPOSE: JWT authentication response
+================================================================================
+  FIELDS:
+    - accessToken (String) - JWT access token
+    - refreshToken (String) - Refresh token
+    - tokenType (String) - "Bearer"
+    - expiresIn (Long) - Expiration in seconds
+    - userId (Long)
+    - email (String)
+    - name (String)
+    - role (String)
+    - tenantId (Long)
+    - schemaName (String)
+    - permissions (List<String>)
+    - onboardingComplete (Boolean)
+    - onboardingStep (Integer)
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.LoginRequest
+TAG: [AUTH-37]
+PURPOSE: Login request DTO
+================================================================================
+  FIELDS:
+    - email (String) - @NotBlank, @Email
+    - password (String) - @NotBlank
+    - tenantId (Long) - @NotNull
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.LogoutRequest
+TAG: [AUTH-38]
+PURPOSE: Logout request DTO
+================================================================================
+  FIELDS:
+    - refreshToken (String) - Optional refresh token to revoke
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.RefreshTokenRequest
+TAG: [AUTH-39]
+PURPOSE: Token refresh request DTO
+================================================================================
+  FIELDS:
+    - refreshToken (String) - Optional
+    - tenantId (Long) - Optional
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.ForgotPasswordRequest
+TAG: [AUTH-40]
+PURPOSE: Password reset initiation request
+================================================================================
+  FIELDS:
+    - tenantId (Long) - @NotNull
+    - email (String) - @NotBlank, @Email
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.ResetPasswordRequest
+TAG: [AUTH-41]
+PURPOSE: Password reset completion request
+================================================================================
+  FIELDS:
+    - tenantId (Long) - @NotNull
+    - token (String) - @NotBlank
+    - newPassword (String) - @NotBlank, @Size(min=8)
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.SignupRequest
+TAG: [AUTH-42]
+PURPOSE: Tenant signup request
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank
+    - email (String) - @NotBlank, @Email
+    - password (String) - @NotBlank, @Size(min=8)
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.SuperAdminLoginRequest
+TAG: [AUTH-43]
+PURPOSE: Super admin login request
+================================================================================
+  FIELDS:
+    - email (String) - @NotBlank, @Email
+    - password (String) - @NotBlank
+
+================================================================================
+FILE: com.mtbs.auth.dto.auth.UserProfileResponse
+TAG: [AUTH-44]
+PURPOSE: User profile response DTO
+================================================================================
+  FIELDS:
+    - userId (Long)
+    - name (String)
+    - email (String)
+    - role (String)
+    - status (Status)
+    - tenantId (Long)
+    - tenantName (String)
+    - schemaName (String)
+    - permissions (List<String>)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.auth.dto.user.UserResponse
+TAG: [AUTH-45]
+PURPOSE: User list/detail response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - email (String)
+    - roleName (String)
+    - status (Status)
+    - createdAt (Instant)
+    - updatedAt (Instant)
+
+================================================================================
+FILE: com.mtbs.auth.dto.user.CreateUserRequest
+TAG: [AUTH-46]
+PURPOSE: Create user request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank
+    - email (String) - @NotBlank, @Email
+    - password (String) - @NotBlank, @Size(min=8)
+    - roleName (String) - @NotBlank
+
+================================================================================
+FILE: com.mtbs.auth.dto.user.UpdateUserRequest
+TAG: [AUTH-47]
+PURPOSE: Update user request DTO
+================================================================================
+  FIELDS:
+    - name (String) - Optional
+    - email (String) - @Email, Optional
+
+================================================================================
+FILE: com.mtbs.auth.dto.user.UpdateOwnProfileRequest
+TAG: [AUTH-48]
+PURPOSE: Update own profile request DTO
+================================================================================
+  FIELDS:
+    - name (String) - Optional
+    - email (String) - @Email, Optional
+    - newPassword (String) - @Size(min=8), Optional
+    - currentPassword (String) - Optional
+
+================================================================================
+FILE: com.mtbs.auth.dto.user.ChangeUserRoleRequest
+TAG: [AUTH-49]
+PURPOSE: Change user role request DTO
+================================================================================
+  FIELDS:
+    - roleName (String) - @NotBlank
+
+================================================================================
+FILE: com.mtbs.auth.dto.user.ChangeUserStatusRequest
+TAG: [AUTH-50]
+PURPOSE: Change user status request DTO
+================================================================================
+  FIELDS:
+    - status (Status) - @NotNull
+
+================================================================================
+FILE: com.mtbs.auth.dto.role.RoleResponse
+TAG: [AUTH-51]
+PURPOSE: Role summary response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - permissionCount (Integer)
+
+================================================================================
+FILE: com.mtbs.auth.dto.role.RoleDetailResponse
+TAG: [AUTH-52]
+PURPOSE: Role detail response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - permissions (List<PermissionResponse>)
+
+================================================================================
+FILE: com.mtbs.auth.dto.role.CreateRoleRequest
+TAG: [AUTH-53]
+PURPOSE: Create role request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank, @Size(max=100)
+
+================================================================================
+FILE: com.mtbs.auth.dto.role.UpdateRoleRequest
+TAG: [AUTH-54]
+PURPOSE: Update role request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank, @Size(max=100)
+
+================================================================================
+FILE: com.mtbs.auth.dto.role.AssignPermissionRequest
+TAG: [AUTH-55]
+PURPOSE: Assign permission to role request DTO
+================================================================================
+  FIELDS:
+    - permissionId (Long) - @NotNull
+
+================================================================================
+FILE: com.mtbs.auth.dto.permission.PermissionResponse
+TAG: [AUTH-56]
+PURPOSE: Permission response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - description (String)
+
+================================================================================
+FILE: com.mtbs.auth.dto.permission.CreatePermissionRequest
+TAG: [AUTH-57]
+PURPOSE: Create permission request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank, @Size(max=100)
+    - description (String) - @Size(max=255), Optional
+
+================================================================================
+================================================================================
+                 ADMIN MODULE (com.mtbs.admin)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.admin.service.AdminTenantService
+TAG: [ADM-1]
+PURPOSE: Super admin tenant management
+================================================================================
+  KEY METHODS:
+    - getAllTenants(Status, Plan, Pageable) - List all tenants with filters
+    - getTenantDetail(Long) - Detailed tenant info with user count
+    - changeTenantStatus(Long, Status, String) - Suspend/reactivate tenant
+    - changeTenantPlan(Long, Plan) - Change plan type
+    - getTenantUsers(Long, Pageable) - List users in tenant schema
+    - deleteTenant(Long) - Soft delete tenant
+  NOTE: Uses JdbcTemplate with quoted schema names for cross-schema user count
+
+================================================================================
+FILE: com.mtbs.admin.service.AdminUserService
+TAG: [ADM-2]
+PURPOSE: Super admin cross-tenant user management
+================================================================================
+  KEY METHODS:
+    - removeUserFromTenant(Long tenantId, Long userId) - Sets TenantContext
+      before delegating to UserService for soft delete
+
+================================================================================
+FILE: com.mtbs.admin.service.AdminMetricsService
+TAG: [ADM-3]
+PURPOSE: Platform-wide metrics aggregation
+================================================================================
+  KEY METHODS:
+    - getPlatformMetrics() - Aggregates metrics from all ACTIVE tenants
+      (cached 15 min via @Cacheable("admin-metrics"))
+  METRICS COMPUTED:
+    - totalTenants, activeTenants, suspendedTenants
+    - tenantsByPlan (map)
+    - totalRevenue (sum of all paid invoices)
+    - monthlyRecurringRevenue
+    - activeSubscriptions, trialingSubscriptions, pastDueSubscriptions
+    - totalInvoices, paidInvoices, openInvoices
+    - totalPaymentsAmount, failedPayments
+
+================================================================================
+FILE: com.mtbs.admin.service.AdminTenantScopedService
+TAG: [ADM-4]
+PURPOSE: Isolated tenant-scoped user queries
+================================================================================
+  KEY METHODS:
+    - findAllUsers(Pageable) - Isolated @Transactional, used only after
+      TenantContext is established by AdminTenantService
+
+================================================================================
+FILE: com.mtbs.admin.controller.AdminTenantController
+TAG: [ADM-5]
+PURPOSE: Tenant management REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/admin/tenants - List all tenants (requires SUPER_ADMIN)
+    - GET /api/admin/tenants/{id} - Get tenant detail (requires SUPER_ADMIN)
+    - PUT /api/admin/tenants/{id}/status - Change status (requires SUPER_ADMIN)
+    - PUT /api/admin/tenants/{id}/plan - Change plan (requires SUPER_ADMIN)
+    - GET /api/admin/tenants/{id}/users - List tenant users (requires SUPER_ADMIN)
+    - DELETE /api/admin/tenants/{id} - Soft delete tenant (requires SUPER_ADMIN)
+
+================================================================================
+FILE: com.mtbs.admin.controller.AdminUserController
+TAG: [ADM-6]
+PURPOSE: Cross-tenant user management REST endpoint
+================================================================================
+  ENDPOINTS:
+    - DELETE /api/admin/tenants/{tenantId}/users/{userId} - Remove user
+      (requires SUPER_ADMIN)
+
+================================================================================
+FILE: com.mtbs.admin.controller.AdminMetricsController
+TAG: [ADM-7]
+PURPOSE: Platform metrics REST endpoint
+================================================================================
+  ENDPOINTS:
+    - GET /api/admin/metrics - Get platform-wide metrics (requires SUPER_ADMIN,
+      cached 15 minutes)
+
+================================================================================
+FILE: com.mtbs.admin.dto.AdminTenantListResponse
+TAG: [ADM-8]
+PURPOSE: Tenant list item DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - schemaName (String)
+    - planType (Plan)
+    - status (Status)
+    - userCount (Integer)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.admin.dto.AdminTenantDetailResponse
+TAG: [ADM-9]
+PURPOSE: Tenant detail DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - schemaName (String)
+    - planType (Plan)
+    - status (Status)
+    - userCount (Integer)
+    - createdAt (Instant)
+    - updatedAt (Instant)
+
+================================================================================
+FILE: com.mtbs.admin.dto.AdminUserSearchResponse
+TAG: [ADM-10]
+PURPOSE: Cross-tenant user search result DTO
+================================================================================
+  FIELDS:
+    - globalUserId (Long)
+    - tenantId (Long)
+    - tenantName (String)
+    - userName (String)
+    - userEmail (String)
+    - roleName (String)
+    - status (Status)
+    - lastLoginAt (Instant)
+
+================================================================================
+FILE: com.mtbs.admin.dto.AdminMetrics
+TAG: [ADM-11]
+PURPOSE: Platform-wide metrics DTO
+================================================================================
+  FIELDS:
+    - totalTenants (Integer)
+    - activeTenants (Integer)
+    - suspendedTenants (Integer)
+    - tenantsByPlan (Map<Plan, Integer>)
+    - totalRevenue (BigDecimal)
+    - monthlyRecurringRevenue (BigDecimal)
+    - activeSubscriptions (Integer)
+    - trialingSubscriptions (Integer)
+    - pastDueSubscriptions (Integer)
+    - totalInvoices (Integer)
+    - paidInvoices (Integer)
+    - openInvoices (Integer)
+    - totalPaymentsAmount (BigDecimal)
+    - failedPayments (Integer)
+
+================================================================================
+FILE: com.mtbs.admin.dto.ChangeTenantPlanRequest
+TAG: [ADM-12]
+PURPOSE: Change tenant plan request DTO
+================================================================================
+  FIELDS:
+    - planType (Plan) - @NotNull
+
+================================================================================
+FILE: com.mtbs.admin.dto.ChangeTenantStatusRequest
+TAG: [ADM-13]
+PURPOSE: Change tenant status request DTO
+================================================================================
+  FIELDS:
+    - status (Status) - @NotNull
+    - reason (String) - Optional reason for suspension
+
+================================================================================
+================================================================================
+                 TENANT MODULE (com.mtbs.tenant)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.tenant.entity.Tenant
+TAG: [TEN-1]
+PURPOSE: Tenant entity (stored in public schema)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "tenants", schema = "public"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - name (String) - Tenant/company name
+    - schemaName (String) - PostgreSQL schema name (unique)
+    - planType (Plan) - FREE, PRO, ENTERPRISE (default: FREE)
+    - status (Status) - ACTIVE, INACTIVE, SUSPENDED, PENDING_ONBOARDING,
+      ONBOARDING_ABANDONED
+    - ownerEmail (String) - Owner email for notifications
+    - slug (String) - URL-friendly identifier (unique)
+    - onboardingStep (Integer) - Current step (0-3, default: 0)
+
+================================================================================
+FILE: com.mtbs.tenant.entity.Plan
+TAG: [TEN-2]
+PURPOSE: Subscription plan entity (public schema)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "plans", schema = "public"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - name (String) - Unique plan identifier (FREE, PRO, ENTERPRISE)
+    - displayName (String) - Display name
+    - description (String) - Plan description
+    - priceMonthly, priceAnnual (BigDecimal) - Pricing
+    - currency (String) - Currency code
+    - trialDays (Integer) - Trial period in days
+    - maxUsers (Integer) - Max users (-1 = unlimited)
+    - maxApiCallsPerMonth (Long) - API call limit (-1 = unlimited)
+    - maxStorageGb (Integer) - Storage limit
+    - isActive (Boolean) - Availability flag
+    - isPublic (Boolean) - Public visibility flag
+
+================================================================================
+FILE: com.mtbs.tenant.entity.TenantOnboarding
+TAG: [TEN-3]
+PURPOSE: Onboarding progress tracking (public schema)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "tenant_onboarding", schema = "public"),
+    soft delete
+  EXTENDS: AuditableEntity
+  STEP 1 - BUSINESS DETAILS:
+    - companyName (String)
+    - slug (String) - UNIQUE
+    - industry (String)
+    - phone (String)
+    - timezone (String)
+    - website (String)
+    - teamSize (String)
+    - useCase (String)
+  STEP 2 - KYC:
+    - businessType (BusinessType) - INDIVIDUAL, COMPANY, PARTNERSHIP, LLP
+    - registrationNumber (String)
+    - billingAddress (Map<String,String>) - JSONB
+    - registeredAddress (Map<String,String>) - JSONB
+    - kycDocumentRef (String)
+    - kycStatus (KycStatus) - PENDING, SUBMITTED, VERIFIED, REJECTED
+  STEP 3 - PLAN & BILLING:
+    - selectedPlanId (Long)
+    - selectedBillingCycle (BillingCycle)
+    - razorpayCustomerId (String)
+    - completedAt (Instant)
+
+================================================================================
+FILE: com.mtbs.tenant.enums.KycStatus
+TAG: [TEN-4]
+PURPOSE: KYC verification status enum
+================================================================================
+  VALUES: PENDING, SUBMITTED, VERIFIED, REJECTED
+
+================================================================================
+FILE: com.mtbs.tenant.enums.BusinessType
+TAG: [TEN-5]
+PURPOSE: Business registration types enum
+================================================================================
+  VALUES: INDIVIDUAL, COMPANY, PARTNERSHIP, LLP
+
+================================================================================
+FILE: com.mtbs.tenant.repository.TenantRepository
+TAG: [TEN-6]
+PURPOSE: Tenant data access
+================================================================================
+  KEY METHODS:
+    - findBySchemaName(String) - Find by schema name
+    - findByName(String) - Find by name
+    - findBySlug(String) - Find by slug
+    - existsBySchemaName(String) - Check schema exists
+    - existsByOwnerEmail(String) - Check owner email exists
+    - existsBySlug(String) - Check slug exists
+    - findAllByStatus(Status) - Find all by status
+    - findByPlanTypeAndStatus(Plan, Status, Pageable) - Paginated by plan/status
+
+================================================================================
+FILE: com.mtbs.tenant.repository.PlanRepository
+TAG: [TEN-7]
+PURPOSE: Plan data access
+================================================================================
+  KEY METHODS:
+    - findByName(String) - Find by name
+    - findAllByIsActiveTrue() - All active plans
+    - findAllByIsActiveTrueAndIsPublicTrue() - Active public plans
+    - existsByName(String) - Check name exists
+
+================================================================================
+FILE: com.mtbs.tenant.repository.TenantOnboardingRepository
+TAG: [TEN-8]
+PURPOSE: Tenant onboarding data access
+================================================================================
+  KEY METHODS:
+    - findByTenantId(Long) - Find by tenant ID
+    - existsBySlug(String) - Check slug uniqueness
+    - existsBySlugAndTenantIdNot(String, Long) - Exclude current tenant
+
+================================================================================
+FILE: com.mtbs.tenant.service.TenantService
+TAG: [TEN-9]
+PURPOSE: Self-management operations for authenticated tenant
+================================================================================
+  KEY METHODS:
+    - getTenantById(Long) - Get tenant by ID
+    - fetchTenantName() - Get current tenant name
+    - updateTenant(Long, UpdateTenantRequest) - Update tenant name
+    - getTenantSchemaInfo(Long) - Counts users, roles, subscriptions
+    - getTenantStatus(Long) - Status with subscription info
+    - deactivateTenant(Long) - Soft delete tenant
+    - reactivateTenant(Long) - Reactivate suspended tenant
+
+================================================================================
+FILE: com.mtbs.tenant.service.PlanService
+TAG: [TEN-10]
+PURPOSE: Plan management
+================================================================================
+  KEY METHODS:
+    - getAllPublicPlans() - Active public plans for display
+    - getAllPlans() - All active plans (including private)
+    - getPlanByIdAsResponse(Long) - Plan as response DTO
+    - getPlanById(Long) - Plan entity
+    - getPlanByName(String) - Plan entity by name
+    - createPlan(CreatePlanRequest) - Create new plan
+    - updatePlan(Long, UpdatePlanRequest) - Update plan
+    - deactivatePlan(Long) - Soft deactivate plan
+
+================================================================================
+FILE: com.mtbs.tenant.service.PlanLimitService
+TAG: [TEN-11]
+PURPOSE: Plan limit enforcement
+================================================================================
+  KEY METHODS:
+    - getCurrentLimits() - Returns PlanLimits with caching (5 min)
+    - resolveApiCallLimit(Plan) - Returns limit or -1 for unlimited
+    - checkApiCallLimit(long count) - Validates API usage count
+    - enforceLimitForMetric(UsageMetric) - Generic metric enforcement
+    - enforceUserLimit() - User count enforcement
+  NOTE: limit = -1 means unlimited (used by FREE plan)
+
+================================================================================
+FILE: com.mtbs.tenant.service.TenantFlywayMigrationService
+TAG: [TEN-12]
+PURPOSE: Schema provisioning via Flyway
+================================================================================
+  KEY METHODS:
+    - createSchemaAndMigrate(String schemaName) - Creates PostgreSQL schema,
+      runs tenant migrations, and seeds default roles/permissions
+    - dropSchema(String schemaName) - Drops PostgreSQL schema (for cleanup)
+  NOTE: Uses Spring's Flyway beans configured for tenant migration path
+
+================================================================================
+FILE: com.mtbs.tenant.service.onboarding.OnboardingService
+TAG: [TEN-13]
+PURPOSE: Orchestrates 3-step onboarding wizard
+================================================================================
+  KEY METHODS:
+    - saveStep1(Long tenantId, OnboardingStep1Request) - Business details
+    - saveStep2(Long tenantId, OnboardingStep2Request) - KYC submission
+    - saveStep3(Long tenantId, OnboardingStep3Request) - Plan selection,
+      triggers completion via OnboardingCompletionService
+    - getStatus(Long tenantId) - Returns onboarding status
+  VALIDATION: Each step validates required fields for that step
+
+================================================================================
+FILE: com.mtbs.tenant.service.onboarding.OnboardingScopedService
+TAG: [TEN-14]
+PURPOSE: Handles transactional onboarding writes
+================================================================================
+  KEY METHODS:
+    - persistStep1(TenantOnboarding, Tenant) - Step 1 data
+    - persistStep2(TenantOnboarding) - Step 2 KYC data
+    - persistStep3(TenantOnboarding, Long planId, BillingCycle) - Step 3 data
+  NOTE: @Transactional, called after TenantContext is established
+
+================================================================================
+FILE: com.mtbs.tenant.service.onboarding.OnboardingCompletionService
+TAG: [TEN-15]
+PURPOSE: Finalizes onboarding (creates subscription, activates tenant)
+================================================================================
+  KEY METHODS:
+    - completeOnboarding(Long tenantId, Plan plan, BillingCycle cycle) - Sets
+      TenantContext before subscription creation, creates TRIALING subscription,
+      updates tenant status to ACTIVE, updates onboarding step
+  CRITICAL: TenantContext must be set before calling SubscriptionService
+
+================================================================================
+FILE: com.mtbs.tenant.config.FlywayConfig
+TAG: [TEN-16]
+PURPOSE: Flyway migrations configuration
+================================================================================
+  TWO NAMED CONFIGURATIONS:
+    - flywayPublic -> classpath:db/migration/public/ (runs on startup)
+    - flywayTenant -> programmatic execution per new tenant
+  NOTE: Public migrations run once on app startup; tenant migrations are
+    run by TenantFlywayMigrationService per new tenant schema
+
+================================================================================
+FILE: com.mtbs.tenant.interceptor.PlanLimitInterceptor
+TAG: [TEN-17]
+PURPOSE: HTTP interceptor for API call tracking and enforcement
+================================================================================
+  REDIS KEY: api:{tenantId}:{YYYY-MM}
+  LOGIC:
+    1. Increments counter in Redis
+    2. Sets TTL to end of month
+    3. Calls PlanLimitService.checkApiCallLimit()
+  EXCLUDED PATHS:
+    - /api/auth/**, /api/plans/**, /api/webhooks/**, /api/onboarding/**
+    - /actuator/**, /swagger-ui/**, /v3/api-docs/**
+  EXCLUDED USERS: SUPER_ADMIN
+
+================================================================================
+FILE: com.mtbs.tenant.mapper.PlanMapper
+TAG: [TEN-18]
+PURPOSE: MapStruct mapper for Plan entity <-> DTOs
+================================================================================
+  MAPPINGS:
+    - Plan <-> PlanResponse
+    - Plan <-> CreatePlanRequest
+    - Plan <-> UpdatePlanRequest
+
+================================================================================
+FILE: com.mtbs.tenant.controller.TenantController
+TAG: [TEN-19]
+PURPOSE: Tenant self-management REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/tenant - Get current tenant details
+    - PUT /api/tenant - Update tenant (requires TENANT_MANAGE)
+    - GET /api/tenant/schema - Get schema info (user count, role count)
+    - GET /api/tenant/status - Get status with subscription info
+    - POST /api/tenant/deactivate - Deactivate tenant
+    - POST /api/tenant/reactivate - Reactivate tenant
+
+================================================================================
+FILE: com.mtbs.tenant.controller.OnboardingController
+TAG: [TEN-20]
+PURPOSE: 3-step onboarding REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/onboarding/status - Get onboarding status
+    - PUT /api/onboarding/step/1 - Save step 1 (business details)
+    - PUT /api/onboarding/step/2 - Save step 2 (KYC)
+    - PUT /api/onboarding/step/3 - Save step 3 (plan selection)
+
+================================================================================
+FILE: com.mtbs.tenant.controller.platform.PlanController
+TAG: [TEN-21]
+PURPOSE: Plan management REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/plans - List public plans (public endpoint)
+    - GET /api/plans/{id} - Get plan by ID (public endpoint)
+    - GET /api/plans/all - List all plans (requires SUPER_ADMIN)
+    - POST /api/plans - Create plan (requires SUPER_ADMIN)
+    - PUT /api/plans/{id} - Update plan (requires SUPER_ADMIN)
+    - DELETE /api/plans/{id} - Deactivate plan (requires SUPER_ADMIN)
+
+================================================================================
+FILE: com.mtbs.tenant.dto.tenant.TenantResponse
+TAG: [TEN-22]
+PURPOSE: Tenant response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - schemaName (String)
+    - planType (Plan)
+    - status (Status)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.tenant.dto.tenant.TenantSchemaInfoResponse
+TAG: [TEN-23]
+PURPOSE: Tenant schema info DTO
+================================================================================
+  FIELDS:
+    - schemaName (String)
+    - userCount (Integer)
+    - roleCount (Integer)
+    - createdAt (Instant)
+    - subscriptionCount (Integer)
+
+================================================================================
+FILE: com.mtbs.tenant.dto.tenant.TenantStatusResponse
+TAG: [TEN-24]
+PURPOSE: Tenant status with subscription info DTO
+================================================================================
+  FIELDS:
+    - planName (String)
+    - isSuspended (Boolean)
+    - tenantStatus (Status)
+    - subscriptionStatus (SubscriptionStatus)
+    - currentPeriodEnd (Instant)
+    - trialEndsAt (Instant)
+
+================================================================================
+FILE: com.mtbs.tenant.dto.tenant.UpdateTenantRequest
+TAG: [TEN-25]
+PURPOSE: Update tenant request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank
+
+================================================================================
+FILE: com.mtbs.tenant.dto.plan.PlanResponse
+TAG: [TEN-26]
+PURPOSE: Plan response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - displayName (String)
+    - description (String)
+    - priceMonthly (BigDecimal)
+    - priceAnnual (BigDecimal)
+    - currency (String)
+    - trialDays (Integer)
+    - maxUsers (Integer)
+    - maxApiCallsPerMonth (Long)
+    - maxStorageGb (Integer)
+    - isActive (Boolean)
+    - isPublic (Boolean)
+
+================================================================================
+FILE: com.mtbs.tenant.dto.plan.CreatePlanRequest
+TAG: [TEN-27]
+PURPOSE: Create plan request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank
+    - displayName (String) - @NotBlank
+    - description (String) - Optional
+    - priceMonthly (BigDecimal) - @NotNull
+    - priceAnnual (BigDecimal) - @NotNull
+    - currency (String) - @NotBlank
+    - trialDays (Integer) - @NotNull
+    - maxUsers (Integer) - @NotNull
+    - maxApiCallsPerMonth (Long) - @NotNull
+    - maxStorageGb (Integer) - @NotNull
+    - isActive (Boolean)
+    - isPublic (Boolean)
+
+================================================================================
+FILE: com.mtbs.tenant.dto.plan.UpdatePlanRequest
+TAG: [TEN-28]
+PURPOSE: Update plan request DTO
+================================================================================
+  FIELDS:
+    - displayName (String) - Optional
+    - description (String) - Optional
+    - priceMonthly (BigDecimal) - Optional
+    - priceAnnual (BigDecimal) - Optional
+    - currency (String) - Optional
+    - trialDays (Integer) - Optional
+    - maxUsers (Integer) - Optional
+    - maxApiCallsPerMonth (Long) - Optional
+    - maxStorageGb (Integer) - Optional
+    - isActive (Boolean) - Optional
+    - isPublic (Boolean) - Optional
+
+================================================================================
+FILE: com.mtbs.tenant.dto.plan.PlanLimits
+TAG: [TEN-29]
+PURPOSE: Plan limits snapshot DTO
+================================================================================
+  FIELDS:
+    - maxUsers (Integer)
+    - maxApiCallsPerMonth (Long)
+    - maxStorageGb (Integer)
+    - unlimited (Boolean) - True if any limit is -1
+
+================================================================================
+================================================================================
+                BILLING MODULE (com.mtbs.billing)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.billing.entity.Subscription
+TAG: [BIL-1]
+PURPOSE: Tenant subscription to the platform
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "subscriptions"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - planId (Long) - Reference to plan
+    - status (SubscriptionStatus) - TRIALING, ACTIVE, PAST_DUE, CANCELLED,
+      EXPIRED, UNPAID
+    - billingCycle (BillingCycle) - MONTHLY, ANNUAL
+    - trialStart, trialEnd (Instant) - Trial period dates
+    - currentPeriodStart, currentPeriodEnd (Instant) - Current billing period
+    - cancelledAt (Instant) - Cancellation timestamp
+    - cancelAtPeriodEnd (Boolean) - Flag for end-of-period cancellation
+    - razorpaySubscriptionId (String) - Razorpay subscription ID
+    - razorpayCustomerId (String) - Razorpay customer ID
+
+================================================================================
+FILE: com.mtbs.billing.entity.Invoice
+TAG: [BIL-2]
+PURPOSE: Platform invoice (what tenant owes for subscription)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "invoices"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - subscriptionId (Long) - Reference to subscription
+    - invoiceNumber (String) - Format: INV-{tenantId}-{YYYYMM}-{seq}
+    - status (InvoiceStatus) - DRAFT, OPEN, PAID, VOID, UNCOLLECTIBLE
+    - subtotal, taxAmount, discountAmount, totalAmount (BigDecimal)
+    - currency (String) - Currency code
+    - dueDate, paidAt (Instant) - Payment dates
+    - razorpayInvoiceId, pdfUrl (String)
+    - billingPeriodStart, billingPeriodEnd (Instant)
+    - lineItems (List<InvoiceLineItem>) - @OneToMany
+
+================================================================================
+FILE: com.mtbs.billing.entity.InvoiceLineItem
+TAG: [BIL-3]
+PURPOSE: Line item on platform invoice
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "invoice_line_items"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - invoice (Invoice) - @ManyToOne to Invoice
+    - description (String) - Item description
+    - quantity, unitPrice, totalPrice (BigDecimal)
+    - lineItemType (LineItemType) - SUBSCRIPTION, USAGE, PRORATION, DISCOUNT, TAX
+
+================================================================================
+FILE: com.mtbs.billing.entity.Payment
+TAG: [BIL-4]
+PURPOSE: Platform payment entity
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "payments"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - invoiceId (Long) - Reference to invoice
+    - amount (BigDecimal), currency (String) - Financials
+    - status (PaymentStatus) - PENDING, PROCESSING, SUCCEEDED, FAILED,
+      REFUNDED, CANCELLED
+    - paymentMethod (PaymentMethod) - CARD, UPI, NETBANKING, BANK_TRANSFER
+    - razorpayOrderId, razorpayPaymentId, razorpaySignature (String)
+    - idempotencyKey (String) - UNIQUE key for idempotent operations
+    - failureCode, failureMessage (String) - Failure details
+    - retryCount (Integer), nextRetryAt (Instant) - Retry scheduling
+    - paidAt (Instant) - Payment timestamp
+
+================================================================================
+FILE: com.mtbs.billing.entity.UsageRecord
+TAG: [BIL-5]
+PURPOSE: Individual raw usage event
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "usage_records"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - subscriptionId (Long) - Reference to subscription
+    - metricType (UsageMetric) - API_CALLS, ACTIVE_USERS, STORAGE_GB
+    - quantity (Long) - Usage count
+    - recordedAt (Instant) - Event timestamp
+    - billingPeriodStart, billingPeriodEnd (Instant) - Period boundaries
+
+================================================================================
+FILE: com.mtbs.billing.entity.UsageSummary
+TAG: [BIL-6]
+PURPOSE: Aggregated usage per billing period
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "usage_summaries"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - subscriptionId (Long) - Reference to subscription
+    - metricType (UsageMetric) - API_CALLS, ACTIVE_USERS, STORAGE_GB
+    - totalQuantity (Long) - Aggregated sum
+    - billingPeriodStart, billingPeriodEnd (Instant) - Period boundaries
+    - isBilled (Boolean) - Billing status flag
+
+================================================================================
+FILE: com.mtbs.billing.repository.SubscriptionRepository
+TAG: [BIL-7]
+PURPOSE: Subscription data access
+================================================================================
+  KEY METHODS:
+    - findFirstByDeletedFalseOrderByCreatedAtDesc() - Current subscription
+    - findByStatusAndDeletedFalse(SubscriptionStatus) - Subscriptions by status
+
+================================================================================
+FILE: com.mtbs.billing.repository.InvoiceRepository
+TAG: [BIL-8]
+PURPOSE: Invoice data access
+================================================================================
+  KEY METHODS:
+    - findBySubscriptionIdAndDeletedFalse(Long) - Invoices for subscription
+    - findByStatusAndDeletedFalse(InvoiceStatus) - Invoices by status
+    - findByDueDateBeforeAndStatusAndDeletedFalse(Instant, InvoiceStatus) -
+      Overdue invoices
+    - countByStatusAndDeletedFalse(InvoiceStatus) - Count by status
+
+================================================================================
+FILE: com.mtbs.billing.repository.InvoiceLineItemRepository
+TAG: [BIL-9]
+PURPOSE: Invoice line item data access
+================================================================================
+  KEY METHODS:
+    - findByInvoiceIdAndDeletedFalse(Long) - Line items for invoice
+
+================================================================================
+FILE: com.mtbs.billing.repository.PaymentRepository
+TAG: [BIL-10]
+PURPOSE: Payment data access
+================================================================================
+  KEY METHODS:
+    - findByInvoiceIdAndDeletedFalse(Long) - Payments for invoice
+    - findByRazorpayPaymentIdAndDeletedFalse(String) - Find by Razorpay payment ID
+    - findByNextRetryAtBeforeAndStatusAndDeletedFalse(Instant, PaymentStatus) -
+      Payments due for retry
+    - findByStatusAndDeletedFalse(PaymentStatus) - Payments by status
+
+================================================================================
+FILE: com.mtbs.billing.repository.UsageRecordRepository
+TAG: [BIL-11]
+PURPOSE: Usage record data access
+================================================================================
+  KEY METHODS:
+    - sumQuantityByMetricTypeAndBillingPeriod(String, Instant, Instant) -
+      Aggregate sum for metric in period
+    - findByRecordedAtBetweenAndDeletedFalse(Instant, Instant) - Records in range
+
+================================================================================
+FILE: com.mtbs.billing.repository.UsageSummaryRepository
+TAG: [BIL-12]
+PURPOSE: Usage summary data access
+================================================================================
+  KEY METHODS:
+    - findBySubscriptionIdAndMetricTypeAndBillingPeriodStartAndDeletedFalse(
+      Long, UsageMetric, Instant) - Summary for metric in period
+    - findBySubscriptionIdAndBillingPeriodStartAndDeletedFalse(Long, Instant) -
+      All summaries for billing period
+
+================================================================================
+FILE: com.mtbs.billing.service.SubscriptionService
+TAG: [BIL-13]
+PURPOSE: Subscription lifecycle management
+================================================================================
+  LIFECYCLE STATES: TRIALING -> ACTIVE -> PAST_DUE -> SUSPENDED/EXPIRED
+  KEY METHODS:
+    - getCurrentSubscription() - Returns SubscriptionResponse
+    - getCurrentSubscriptionEntity() - Returns Subscription entity
+    - startTrial(Long planId) - Creates first subscription with TRIALING status
+    - activateSubscription(Long planId, BillingCycle) - Converts TRIALING to ACTIVE
+    - cancelSubscription(boolean atPeriodEnd) - Sets cancel flag or cancels immediately
+    - changePlan(Long planId) - Plan upgrade/downgrade
+    - expireSubscription(Long) - Expire past-due subscription (scheduler only)
+    - suspendForNonPayment(Long) - Suspend tenant for non-payment (scheduler only)
+  EVENTS: Publishes TRIAL_STARTED, SUBSCRIPTION_ACTIVATED, SUBSCRIPTION_CANCELLED,
+    SUBSCRIPTION_EXPIRED via SubscriptionEventPublisher
+
+================================================================================
+FILE: com.mtbs.billing.service.InvoiceService
+TAG: [BIL-14]
+PURPOSE: Invoice lifecycle management
+================================================================================
+  LIFECYCLE: DRAFT -> OPEN -> PAID, or DRAFT/OPEN -> VOID
+  KEY METHODS:
+    - generateInvoice(Long subscriptionId, Instant periodStart, Instant periodEnd) -
+      Creates DRAFT invoice with line items
+    - finalizeInvoice(Long invoiceId) - DRAFT -> OPEN, sets 7-day due date
+    - markInvoicePaid(Long invoiceId, String razorpayPaymentId, Instant paidAt) -
+      Sets PAID status
+    - getInvoiceById(Long) - Returns InvoiceResponse
+    - listInvoices(Pageable) - Paginated list
+    - voidInvoice(Long invoiceId) - Voids DRAFT/OPEN invoice
+    - generateInvoiceNumber() - Format: INV-{tenantId}-{YYYYMM}-{seq:04d}
+  EVENTS: Publishes INVOICE_GENERATED, INVOICE_PAID via BillingEventPublisher
+
+================================================================================
+FILE: com.mtbs.billing.service.PaymentService
+TAG: [BIL-15]
+PURPOSE: Payment processing with Razorpay integration
+================================================================================
+  CONSTANTS: MAX_RETRY_COUNT = 3
+  KEY METHODS:
+    - processPayment(Long invoiceId) - Creates Razorpay order for invoice
+    - verifyAndCapturePayment(VerifyPaymentRequest) - Verifies HMAC signature,
+      captures payment, marks invoice PAID
+    - handlePaymentSuccess(String razorpayPaymentId) - Processes successful payment
+    - handlePaymentFailure(String razorpayPaymentId, String failureCode,
+      String failureMessage) - Handles failed payment, schedules retry
+    - retryFailedPayment(Long paymentId) - Retries with exponential backoff
+      (1h, 6h, 24h)
+    - refundPayment(Long paymentId, Long amountInr) - Full or partial refund
+  IDEMPOTENCY: Uses pay-{tenantId}-{invoiceId} as idempotency key
+  EVENTS: Publishes PAYMENT_SUCCEEDED, PAYMENT_FAILED, PAYMENT_RETRY via
+    BillingEventPublisher
+
+================================================================================
+FILE: com.mtbs.billing.service.UsageService
+TAG: [BIL-16]
+PURPOSE: Usage tracking and aggregation
+================================================================================
+  CONSTANTS: WARNING_THRESHOLD_PERCENT = 80
+  KEY METHODS:
+    - recordUsage(UsageMetric metric, long quantity) - Records single usage event
+    - getCurrentUsage() - Returns list of UsageResponse for current period
+    - getUsageForPeriod(Instant start, Instant end) - Usage for date range
+    - checkAndEnforceLimits(UsageMetric) - Checks limits, fires 80% warning event,
+      throws ResourceException.planLimitExceeded at 100%
+    - aggregateUsageForBilling(Long subscriptionId) - Aggregates UsageRecord ->
+      UsageSummary (called by UsageAggregationJob)
+  EVENTS: Publishes USAGE_LIMIT_WARNING, USAGE_LIMIT_REACHED
+
+================================================================================
+FILE: com.mtbs.billing.service.InvoicePdfService
+TAG: [BIL-17]
+PURPOSE: PDF generation for platform invoices
+================================================================================
+  LIBRARY: iText (openpdf)
+  KEY METHODS:
+    - generateInvoicePdf(Invoice invoice) - Generates PDF bytes for invoice
+  LAYOUT:
+    - Header: Company name, invoice number, dates
+    - Bill To section
+    - Line items table: description, qty, unit price, tax, total
+    - Totals block: subtotal, tax, discount, grand total
+    - Footer: payment due date
+
+================================================================================
+FILE: com.mtbs.billing.service.TenantBillingDashboardService
+TAG: [BIL-18]
+PURPOSE: Tenant billing dashboard data aggregation
+================================================================================
+  KEY METHODS:
+    - getDashboard() - Returns TenantBillingDashboard with:
+      * SubscriptionSummary (plan, status, period end)
+      * UsageSummarySection (metrics with computed remaining/percentUsed)
+      * InvoiceSummary (recent invoices)
+      * PaymentSummary (payment stats)
+  ENRICHMENT: Computes remaining and percentUsed for UsageLimitsResponse,
+    with special handling for limit == -1 (unlimited)
+
+================================================================================
+FILE: com.mtbs.billing.gateway.PaymentGatewayPort
+TAG: [BIL-19]
+PURPOSE: Payment gateway interface (abstracts Razorpay)
+================================================================================
+  METHODS:
+    - createOrder(long amountPaise, String currency, String receipt)
+    - verifyPaymentSignature(String orderId, String paymentId, String signature)
+    - capturePayment(String paymentId, long amountPaise)
+    - refundPayment(String paymentId, long amountPaise)
+    - createCustomer(String email, String name, String phone)
+    - createPaymentLink(long amountPaise, String currency, String description,
+      String customerEmail, String customerName, String customerPhone, String receipt)
+
+================================================================================
+FILE: com.mtbs.billing.gateway.RazorpayPaymentGateway
+TAG: [BIL-20]
+PURPOSE: Razorpay implementation of PaymentGatewayPort
+================================================================================
+  CONFIG: razorpay.key-id, razorpay.key-secret
+  NOTE: All amounts in paise (1 INR = 100 paise)
+
+================================================================================
+FILE: com.mtbs.billing.scheduler.job.BillingCycleJob
+TAG: [BIL-21]
+PURPOSE: Daily at midnight - processes billing for all tenants
+================================================================================
+  CRON: 0 0 0 * * ?
+  FLOW: For each ACTIVE tenant:
+    1. Check if subscription period has expired
+    2. Generate DRAFT invoice
+    3. Finalize invoice (OPEN)
+    4. Process payment (create Razorpay order)
+    5. Update period dates
+
+================================================================================
+FILE: com.mtbs.billing.scheduler.job.SubscriptionExpiryJob
+TAG: [BIL-22]
+PURPOSE: Hourly - expires PAST_DUE subscriptions after grace period
+================================================================================
+  CRON: 0 0 * * * ?
+  FLOW: For each ACTIVE tenant:
+    1. Find PAST_DUE subscriptions past 7-day grace period
+    2. Expire subscription
+    3. Suspend tenant
+
+================================================================================
+FILE: com.mtbs.billing.scheduler.job.TrialExpiryJob
+TAG: [BIL-23]
+PURPOSE: Daily at midnight - expires expired trial subscriptions
+================================================================================
+  CRON: 0 0 0 * * ?
+  FLOW: For each ACTIVE tenant:
+    1. Find TRIALING subscriptions past trialEnd
+    2. Expire subscription
+    3. Suspend tenant
+
+================================================================================
+FILE: com.mtbs.billing.scheduler.job.TrialEndingSoonJob
+TAG: [BIL-24]
+PURPOSE: Daily at 08:00 UTC - alerts trials ending within 3 days
+================================================================================
+  CRON: 0 0 8 * * ?
+  FLOW: For each ACTIVE tenant:
+    1. Find TRIALING subscriptions ending within 3 days
+    2. Fire TRIAL_ENDING_SOON event
+
+================================================================================
+FILE: com.mtbs.billing.scheduler.job.PaymentRetryJob
+TAG: [BIL-25]
+PURPOSE: Every 6 hours - retries failed payments
+================================================================================
+  CRON: 0 0 */6 * * ?
+  FLOW:
+    1. Find payments where nextRetryAt <= now AND retryCount < 3
+    2. Retry payment via PaymentService.retryFailedPayment()
+
+================================================================================
+FILE: com.mtbs.billing.scheduler.job.UsageAggregationJob
+TAG: [BIL-26]
+PURPOSE: Hourly - aggregates raw usage records into summaries
+================================================================================
+  CRON: 0 0 * * * ?
+  FLOW: For each ACTIVE tenant:
+    1. Aggregate UsageRecord -> UsageSummary per metric per billing period
+    2. Mark aggregated records
+
+================================================================================
+FILE: com.mtbs.billing.aspect.FeatureGateAspect
+TAG: [BIL-27]
+PURPOSE: AOP aspect for @FeatureGate annotation
+================================================================================
+  JOINS: Methods annotated with @FeatureGate
+  LOGIC: Checks UsageMetric limit; throws ResourceException.planLimitExceeded
+    if exceeded
+
+================================================================================
+FILE: com.mtbs.billing.event.BillingEventPublisher
+TAG: [BIL-28]
+PURPOSE: Publishes billing events for notifications
+================================================================================
+  EVENTS PUBLISHED: INVOICE_GENERATED, INVOICE_PAID, PAYMENT_SUCCEEDED,
+    PAYMENT_FAILED, PAYMENT_RETRY, SUBSCRIPTION_RENEWED
+
+================================================================================
+FILE: com.mtbs.billing.event.SubscriptionEventPublisher
+TAG: [BIL-29]
+PURPOSE: Publishes subscription lifecycle events
+================================================================================
+  EVENTS PUBLISHED: TRIAL_STARTED, SUBSCRIPTION_ACTIVATED, SUBSCRIPTION_CANCELLED,
+    SUBSCRIPTION_EXPIRED, SUBSCRIPTION_RENEWED
+
+================================================================================
+FILE: com.mtbs.billing.controller.SubscriptionController
+TAG: [BIL-30]
+PURPOSE: Subscription lifecycle REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/subscriptions/current - Get current subscription
+    - POST /api/subscriptions/activate - Activate/convert trial (requires BILLING_MANAGE)
+    - POST /api/subscriptions/cancel - Cancel subscription (requires BILLING_MANAGE)
+    - POST /api/subscriptions/change-plan - Change plan (requires BILLING_MANAGE)
+
+================================================================================
+FILE: com.mtbs.billing.controller.InvoiceController
+TAG: [BIL-31]
+PURPOSE: Invoice management REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/invoices - List invoices (paginated, requires BILLING_MANAGE)
+    - GET /api/invoices/{id} - Get invoice details (requires BILLING_MANAGE)
+    - POST /api/invoices/{id}/void - Void invoice (requires BILLING_MANAGE)
+    - GET /api/invoices/{id}/download - Download PDF (requires BILLING_MANAGE)
+
+================================================================================
+FILE: com.mtbs.billing.controller.PaymentController
+TAG: [BIL-32]
+PURPOSE: Payment processing REST endpoints
+================================================================================
+  ENDPOINTS:
+    - POST /api/payments/process/{invoiceId} - Initiate payment (requires BILLING_MANAGE)
+    - POST /api/payments/verify - Verify and capture payment (requires BILLING_MANAGE)
+    - POST /api/payments/{id}/retry - Retry failed payment (requires BILLING_MANAGE)
+    - POST /api/payments/{id}/refund - Refund payment (requires BILLING_MANAGE)
+    - GET /api/payments/{id} - Get payment by ID (requires BILLING_MANAGE)
+    - GET /api/payments/invoice/{invoiceId} - Get payments for invoice
+      (requires BILLING_MANAGE)
+
+================================================================================
+FILE: com.mtbs.billing.controller.DashboardController
+TAG: [BIL-33]
+PURPOSE: Dashboard REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/dashboard/billing - Tenant billing dashboard
+    - GET /api/dashboard/admin/metrics - Platform admin metrics (requires SUPER_ADMIN)
+
+================================================================================
+FILE: com.mtbs.billing.controller.UsageController
+TAG: [BIL-34]
+PURPOSE: Usage tracking REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/usage/current - Current period usage
+    - GET /api/usage - Usage for custom date range
+    - GET /api/usage/limits - Plan limits with usage percentages
+
+================================================================================
+FILE: com.mtbs.billing.controller.webhook.RazorpayWebhookController
+TAG: [BIL-35]
+PURPOSE: Handles Razorpay webhook events
+================================================================================
+  ENDPOINT: POST /api/webhooks/razorpay
+  HANDLED EVENTS:
+    - payment.captured -> handlePaymentSuccess()
+    - payment.failed -> handlePaymentFailure()
+  SECURITY: HMAC-SHA256 signature verification (X-Razorpay-Signature header)
+
+================================================================================
+FILE: com.mtbs.billing.dto.InvoiceResponse
+TAG: [BIL-36]
+PURPOSE: Invoice response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - subscriptionId (Long)
+    - invoiceNumber (String)
+    - status (InvoiceStatus)
+    - subtotal, taxAmount, discountAmount, totalAmount (BigDecimal)
+    - currency (String)
+    - dueDate, paidAt (Instant)
+    - billingPeriodStart, billingPeriodEnd (Instant)
+    - lineItems (List<InvoiceLineItemResponse>)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.billing.dto.InvoiceLineItemResponse
+TAG: [BIL-37]
+PURPOSE: Invoice line item response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - description (String)
+    - quantity (BigDecimal)
+    - unitPrice (BigDecimal)
+    - totalPrice (BigDecimal)
+    - lineItemType (LineItemType)
+
+================================================================================
+FILE: com.mtbs.billing.dto.PaymentResponse
+TAG: [BIL-38]
+PURPOSE: Payment response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - invoiceId (Long)
+    - amount (BigDecimal)
+    - currency (String)
+    - status (PaymentStatus)
+    - paymentMethod (PaymentMethod)
+    - razorpayOrderId, razorpayPaymentId (String)
+    - failureCode, failureMessage (String)
+    - retryCount (Integer)
+    - nextRetryAt (Instant)
+    - paidAt (Instant)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.billing.dto.OrderResponse
+TAG: [BIL-39]
+PURPOSE: Razorpay order response DTO
+================================================================================
+  FIELDS:
+    - orderId (String) - Razorpay order ID
+    - amount (Long) - Amount in paise
+    - currency (String)
+    - receipt (String)
+    - status (String)
+    - keyId (String) - Razorpay key ID for frontend
+
+================================================================================
+FILE: com.mtbs.billing.dto.UsageResponse
+TAG: [BIL-40]
+PURPOSE: Usage metric response DTO
+================================================================================
+  FIELDS:
+    - metric (UsageMetric)
+    - current (Long)
+    - limit (Long)
+    - remaining (Long)
+    - percentUsed (Double)
+    - periodStart, periodEnd (Instant)
+
+================================================================================
+FILE: com.mtbs.billing.dto.UsageLimitsResponse
+TAG: [BIL-41]
+PURPOSE: Usage limits response DTO
+================================================================================
+  FIELDS:
+    - unlimited (Boolean)
+    - metrics (List<MetricLimit>)
+  INNER CLASS MetricLimit:
+    - metric (UsageMetric)
+    - displayName (String)
+    - current (Long)
+    - limit (Long)
+    - usagePercent (Double)
+    - exceeded (Boolean)
+    - warning (Boolean) - True if >= 80%
+
+================================================================================
+FILE: com.mtbs.billing.dto.RefundRequest
+TAG: [BIL-42]
+PURPOSE: Refund request DTO
+================================================================================
+  FIELDS:
+    - amount (BigDecimal) - 0 for full refund
+    - reason (String) - Optional
+
+================================================================================
+FILE: com.mtbs.billing.dto.RefundResult
+TAG: [BIL-43]
+PURPOSE: Refund result DTO
+================================================================================
+  FIELDS:
+    - success (Boolean)
+    - refundId (String)
+    - amountRefunded (BigDecimal)
+    - failureReason (String)
+
+================================================================================
+FILE: com.mtbs.billing.dto.VerifyPaymentRequest
+TAG: [BIL-44]
+PURPOSE: Verify payment request DTO
+================================================================================
+  FIELDS:
+    - razorpayOrderId (String) - @NotBlank
+    - razorpayPaymentId (String) - @NotBlank
+    - razorpaySignature (String) - @NotBlank
+
+================================================================================
+FILE: com.mtbs.billing.dto.TenantBillingDashboard
+TAG: [BIL-45]
+PURPOSE: Tenant billing dashboard DTO with nested summary classes
+================================================================================
+  INNER CLASSES:
+    - SubscriptionSummary: subscriptionId, planName, status, currentPeriodEnd
+    - UsageSummarySection: metrics List<MetricLimit>
+    - InvoiceSummary: invoiceId, invoiceNumber, totalAmount, status, dueDate
+    - PaymentSummary: totalPayments, successfulPayments, failedPayments,
+      totalAmount (BigDecimal)
+
+================================================================================
+FILE: com.mtbs.billing.dto.subscription.SubscriptionResponse
+TAG: [BIL-46]
+PURPOSE: Subscription response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - planId (Long)
+    - planName (String)
+    - status (SubscriptionStatus)
+    - billingCycle (BillingCycle)
+    - trialStart, trialEnd (Instant)
+    - currentPeriodStart, currentPeriodEnd (Instant)
+    - cancelledAt (Instant)
+    - cancelAtPeriodEnd (Boolean)
+
+================================================================================
+FILE: com.mtbs.billing.dto.subscription.ActivateSubscriptionRequest
+TAG: [BIL-47]
+PURPOSE: Activate subscription request DTO
+================================================================================
+  FIELDS:
+    - planId (Long) - @NotNull
+    - billingCycle (BillingCycle) - @NotNull
+
+================================================================================
+FILE: com.mtbs.billing.dto.subscription.CancelSubscriptionRequest
+TAG: [BIL-48]
+PURPOSE: Cancel subscription request DTO
+================================================================================
+  FIELDS:
+    - atPeriodEnd (Boolean) - True = cancel at end of period, False = immediate
+
+================================================================================
+FILE: com.mtbs.billing.dto.subscription.ChangePlanRequest
+TAG: [BIL-49]
+PURPOSE: Change plan request DTO
+================================================================================
+  FIELDS:
+    - planId (Long) - @NotNull
+
+================================================================================
+================================================================================
+              BUSINESS MODULE (com.mtbs.business)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.business.customer.entity.Customer
+TAG: [BUS-1]
+PURPOSE: Tenant's end-customer for business invoices (NOT auth.User)
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "customers"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - name (String) - Customer name
+    - email (String) - Customer email (optional)
+    - phone (String) - Customer phone
+    - address (String) - TEXT field
+    - gstin (String) - GST Identification Number (optional, 15 chars for India)
+    - razorpayCustomerId (String) - Created via PaymentGatewayPort.createCustomer()
+  NOTE: Deletion blocked if customer has any non-void invoices
+
+================================================================================
+FILE: com.mtbs.business.customer.repository.CustomerRepository
+TAG: [BUS-2]
+PURPOSE: Customer data access
+================================================================================
+  KEY METHODS:
+    - existsByEmailAndDeletedFalse(String) - Email uniqueness check
+    - searchByKeyword(String keyword) - Search by name/email (JPQL, handles null)
+    - findAllExcludingIdAndDeletedFalse(Long excludeId, Pageable) - Exclude one
+  NOTE: Uses separate searchByKeyword() method to avoid Hibernate bytea binding
+    bug with null parameters in combined queries
+
+================================================================================
+FILE: com.mtbs.business.customer.service.CustomerService
+TAG: [BUS-3]
+PURPOSE: Tenant customer management
+================================================================================
+  KEY METHODS:
+    - create(CreateCustomerRequest) - Creates customer, best-effort Razorpay sync
+    - getById(Long) - Get by ID
+    - list(String keyword, Pageable) - Paginated list with optional search
+    - update(Long, UpdateCustomerRequest) - Update details
+    - delete(Long) - Soft delete (blocks if active invoices exist)
+  RAZORPAY SYNC: Best-effort (non-blocking on failure), uses PaymentGatewayPort
+
+================================================================================
+FILE: com.mtbs.business.customer.controller.CustomerController
+TAG: [BUS-4]
+PURPOSE: Customer management REST endpoints
+================================================================================
+  ENDPOINTS:
+    - POST /api/customers - Create customer (requires CUSTOMER_MANAGE)
+    - GET /api/customers - List customers with search (requires CUSTOMER_MANAGE)
+    - GET /api/customers/{id} - Get customer (requires CUSTOMER_MANAGE)
+    - PUT /api/customers/{id} - Update customer (requires CUSTOMER_MANAGE)
+    - DELETE /api/customers/{id} - Soft delete (requires CUSTOMER_MANAGE)
+
+================================================================================
+FILE: com.mtbs.business.customer.dto.CustomerResponse
+TAG: [BUS-5]
+PURPOSE: Customer response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - email (String)
+    - phone (String)
+    - address (String)
+    - gstin (String)
+    - razorpayCustomerId (String)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.business.customer.dto.CreateCustomerRequest
+TAG: [BUS-6]
+PURPOSE: Create customer request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank
+    - email (String) - @Email, Optional
+    - phone (String) - Optional
+    - address (String) - Optional
+    - gstin (String) - @Pattern(regex = "^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"),
+      Optional
+
+================================================================================
+FILE: com.mtbs.business.customer.dto.UpdateCustomerRequest
+TAG: [BUS-7]
+PURPOSE: Update customer request DTO
+================================================================================
+  FIELDS:
+    - name (String) - Optional
+    - email (String) - @Email, Optional
+    - phone (String) - Optional
+    - address (String) - Optional
+    - gstin (String) - Optional
+
+================================================================================
+FILE: com.mtbs.business.product.entity.Product
+TAG: [BUS-8]
+PURPOSE: Tenant product/service catalog item
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "products"), soft delete
+  EXTENDS: AuditableEntity
+  SNAPSHOT DESIGN: Price and tax are COPIED to BusinessInvoiceItem at creation
+    time (not FK references). This is intentional for audit/legal compliance.
+  FIELDS:
+    - name (String) - Product name
+    - description (String) - Product description
+    - price (BigDecimal) - Default unit price
+    - taxPercentage (BigDecimal) - GST rate (snapshotted on invoice)
+    - hsnSacCode (String) - HSN (goods) or SAC (services) code for GST
+    - unit (String) - Unit of measure ("hrs", "kg", "units", etc.)
+    - isActive (Boolean) - Soft deactivation flag (deactivated products blocked
+      from new invoices)
+  NOTE: Products are NEVER hard-deleted; only deactivated to preserve invoice
+    line item integrity
+
+================================================================================
+FILE: com.mtbs.business.product.repository.ProductRepository
+TAG: [BUS-9]
+PURPOSE: Product data access
+================================================================================
+  KEY METHODS:
+    - findByNameAndDeletedFalse(String) - Find active product by name
+    - searchByKeyword(String keyword) - Search by name/description
+    - findAllActiveExcludingId(Long excludeId, Pageable) - Active products for
+      invoice dropdown
+    - findByHsnSacCodeAndDeletedFalse(String) - HSN/SAC lookup for GST reporting
+
+================================================================================
+FILE: com.mtbs.business.product.service.ProductService
+TAG: [BUS-10]
+PURPOSE: Product catalog management
+================================================================================
+  KEY METHODS:
+    - create(CreateProductRequest) - Create product
+    - getById(Long) - Get by ID
+    - list(String keyword, Pageable) - Paginated list with optional search
+    - update(Long, UpdateProductRequest) - Update details
+    - deactivate(Long) - Soft deactivate (blocks from new invoices)
+    - reactivate(Long) - Reactivate deactivated product
+
+================================================================================
+FILE: com.mtbs.business.product.controller.ProductController
+TAG: [BUS-11]
+PURPOSE: Product catalog REST endpoints
+================================================================================
+  ENDPOINTS:
+    - POST /api/products - Create product (requires PRODUCT_MANAGE)
+    - GET /api/products - List products (requires PRODUCT_MANAGE)
+    - GET /api/products/{id} - Get product (requires PRODUCT_MANAGE)
+    - PUT /api/products/{id} - Update product (requires PRODUCT_MANAGE)
+    - DELETE /api/products/{id} - Deactivate product (requires PRODUCT_MANAGE)
+    - POST /api/products/{id}/deactivate - Deactivate (requires PRODUCT_MANAGE)
+    - POST /api/products/{id}/reactivate - Reactivate (requires PRODUCT_MANAGE)
+    - GET /api/products/active - List active products (requires BILLING_MANAGE)
+
+================================================================================
+FILE: com.mtbs.business.product.dto.ProductResponse
+TAG: [BUS-12]
+PURPOSE: Product response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - name (String)
+    - description (String)
+    - price (BigDecimal)
+    - taxPercentage (BigDecimal)
+    - hsnSacCode (String)
+    - unit (String)
+    - isActive (Boolean)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.business.product.dto.CreateProductRequest
+TAG: [BUS-13]
+PURPOSE: Create product request DTO
+================================================================================
+  FIELDS:
+    - name (String) - @NotBlank
+    - description (String) - Optional
+    - price (BigDecimal) - @NotNull, @DecimalMin("0")
+    - taxPercentage (BigDecimal) - @NotNull, @DecimalMin("0"), @DecimalMax("100")
+    - hsnSacCode (String) - Optional
+    - unit (String) - Optional
+
+================================================================================
+FILE: com.mtbs.business.product.dto.UpdateProductRequest
+TAG: [BUS-14]
+PURPOSE: Update product request DTO
+================================================================================
+  FIELDS:
+    - name (String) - Optional
+    - description (String) - Optional
+    - price (BigDecimal) - @DecimalMin("0"), Optional
+    - taxPercentage (BigDecimal) - @DecimalMin("0"), @DecimalMax("100"), Optional
+    - hsnSacCode (String) - Optional
+    - unit (String) - Optional
+
+================================================================================
+FILE: com.mtbs.business.invoice.entity.BusinessInvoice
+TAG: [BUS-15]
+PURPOSE: Manual invoice raised by tenant for their customer
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "business_invoices"), soft delete
+  EXTENDS: AuditableEntity
+  LIFECYCLE: DRAFT -> OPEN -> PAID, or DRAFT/OPEN -> VOID
+  INVOICE NUMBER FORMAT: BINV-{tenantId}-{YYYYMM}-{seq:04d}
+  FIELDS:
+    - invoiceNumber (String) - UNIQUE, format BINV-*
+    - customerId (Long) - FK to customers
+    - status (InvoiceStatus) - DRAFT, OPEN, PAID, VOID
+    - subtotal, taxAmount, totalAmount (BigDecimal) - Stored explicitly (not computed)
+    - currency (String) - Currency code
+    - notes (String) - Free-text notes
+    - dueDate, paidAt (Instant) - Payment dates
+    - pdfUrl, razorpayPaymentLinkId (String)
+
+================================================================================
+FILE: com.mtbs.business.invoice.entity.BusinessInvoiceItem
+TAG: [BUS-16]
+PURPOSE: Line item on BusinessInvoice
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "business_invoice_items"), soft delete
+  EXTENDS: AuditableEntity
+  SNAPSHOT DESIGN: unitPrice and taxPercentage are COPIED from product at creation.
+    productId is nullable (null = free-text line item).
+  FIELDS:
+    - invoice (BusinessInvoice) - @ManyToOne
+    - productId (Long) - Nullable (null = free-text item)
+    - description (String) - Item description (copied from product name if product)
+    - quantity (BigDecimal) - Unit count
+    - unitPrice (BigDecimal) - SNAPSHOTTED from product
+    - taxPercentage (BigDecimal) - SNAPSHOTTED from product
+    - taxAmount (BigDecimal) - Computed: ROUND((unitPrice * qty) * (taxPct / 100), 2)
+    - total (BigDecimal) - Computed: ROUND((unitPrice * qty) + taxAmount, 2)
+
+================================================================================
+FILE: com.mtbs.business.invoice.repository.BusinessInvoiceRepository
+TAG: [BUS-17]
+PURPOSE: Business invoice data access
+================================================================================
+  KEY METHODS:
+    - findByStatusAndDeletedFalse(InvoiceStatus) - By status
+    - findByCustomerIdAndDeletedFalse(Long) - By customer
+    - findAllOpen() - All OPEN invoices
+    - findAllOverdue(Instant now) - Overdue invoices (OPEN with past dueDate)
+    - findByCreatedAtBetween(Instant from, Instant to) - Date range
+    - countAllIncludingVoid() - Total count including void (for sequence generation)
+    - countByStatusAndDeletedFalse(InvoiceStatus) - Count by status
+
+================================================================================
+FILE: com.mtbs.business.invoice.repository.BusinessInvoiceItemRepository
+TAG: [BUS-18]
+PURPOSE: Business invoice item data access
+================================================================================
+  KEY METHODS:
+    - findByInvoiceIdAndDeletedFalse(Long) - Items for invoice
+    - sumTotalByInvoiceId(Long) - Total of all item totals
+    - sumTaxByInvoiceId(Long) - Total of all item tax amounts
+
+================================================================================
+FILE: com.mtbs.business.invoice.service.BusinessInvoiceService
+TAG: [BUS-19]
+PURPOSE: Business invoice lifecycle management
+================================================================================
+  FINANCIAL CALCULATION:
+    itemTax = ROUND((unitPrice * qty) * (taxPct / 100), 2)
+    itemTotal = ROUND((unitPrice * qty) + itemTax, 2)
+    invoice.subtotal = SUM(unitPrice * qty)
+    invoice.taxAmount = SUM(itemTax)
+    invoice.totalAmount = subtotal + taxAmount
+  KEY METHODS:
+    - create(CreateBusinessInvoiceRequest) - Creates DRAFT with line items
+    - getById(Long) - Get by ID
+    - list(Pageable) - Paginated list
+    - addLineItem(Long invoiceId, AddLineItemRequest) - Add line item to DRAFT,
+      recalculates totals from DB
+    - removeLineItem(Long invoiceId, Long itemId) - Remove from DRAFT,
+      recalculates totals from DB
+    - finalize(Long invoiceId) - DRAFT -> OPEN, sets 30-day due date
+    - send(Long invoiceId) - Sends invoice email with PDF attachment,
+      fires BUSINESS_INVOICE_SENT event
+    - voidInvoice(Long invoiceId) - Voids DRAFT/OPEN invoice
+    - markPaid(Long invoiceId) - Called by payment service when fully paid
+    - createPaymentLink(Long invoiceId) - Creates Razorpay Payment Link (idempotent)
+    - generatePdf(Long invoiceId) - PDF generation via BusinessInvoicePdfService
+    - generateInvoiceNumber() - BINV-{tenantId}-{YYYYMM}-{seq:04d}
+  EVENTS: Publishes BUSINESS_INVOICE_SENT via BusinessEventPublisher
+
+================================================================================
+FILE: com.mtbs.business.invoice.service.BusinessInvoicePdfService
+TAG: [BUS-20]
+PURPOSE: PDF generation for business invoices using iText 8
+================================================================================
+  KEY METHODS:
+    - generateInvoicePdf(BusinessInvoice invoice, List<BusinessInvoiceItem> items) -
+      Generates formatted PDF bytes
+  LAYOUT:
+    - Header bar: TAX INVOICE text, indigo color, invoice number, dates
+    - Bill To section: customer name, email, phone, GSTIN (if present)
+    - Line items table: description, qty, unit price, tax%, tax, total
+    - Totals block: subtotal, total tax, grand total
+    - Notes section: left-bordered callout box
+    - Footer: payment due date, thank you message
+
+================================================================================
+FILE: com.mtbs.business.invoice.controller.BusinessInvoiceController
+TAG: [BUS-21]
+PURPOSE: Business invoice REST endpoints
+================================================================================
+  ENDPOINTS:
+    - POST /api/business-invoices - Create invoice (requires BILLING_MANAGE)
+    - GET /api/business-invoices - List invoices (requires BILLING_MANAGE)
+    - GET /api/business-invoices/{id} - Get invoice (requires BILLING_MANAGE)
+    - POST /api/business-invoices/{id}/items - Add line item (requires BILLING_MANAGE)
+    - DELETE /api/business-invoices/{id}/items/{itemId} - Remove line item
+      (requires BILLING_MANAGE)
+    - POST /api/business-invoices/{id}/finalize - Finalize invoice (requires BILLING_MANAGE)
+    - POST /api/business-invoices/{id}/send - Send invoice email (requires BILLING_MANAGE)
+    - POST /api/business-invoices/{id}/void - Void invoice (requires BILLING_MANAGE)
+    - GET /api/business-invoices/{id}/download - Download PDF (requires BILLING_MANAGE)
+    - POST /api/business-invoices/{id}/payment-link - Create payment link
+      (requires BILLING_MANAGE)
+
+================================================================================
+FILE: com.mtbs.business.invoice.dto.BusinessInvoiceResponse
+TAG: [BUS-22]
+PURPOSE: Business invoice response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - invoiceNumber (String)
+    - customerId (Long)
+    - customerName (String)
+    - status (InvoiceStatus)
+    - subtotal, taxAmount, totalAmount (BigDecimal)
+    - currency (String)
+    - notes (String)
+    - dueDate, paidAt (Instant)
+    - razorpayPaymentLinkId (String)
+    - itemCount (Integer)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.business.invoice.dto.BusinessInvoiceItemResponse
+TAG: [BUS-23]
+PURPOSE: Business invoice item response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - productId (Long)
+    - description (String)
+    - quantity (BigDecimal)
+    - unitPrice (BigDecimal)
+    - taxPercentage (BigDecimal)
+    - taxAmount (BigDecimal)
+    - total (BigDecimal)
+
+================================================================================
+FILE: com.mtbs.business.invoice.dto.CreateBusinessInvoiceRequest
+TAG: [BUS-24]
+PURPOSE: Create business invoice request DTO
+================================================================================
+  FIELDS:
+    - customerId (Long) - @NotNull
+    - notes (String) - Optional
+    - items (List<AddLineItemRequest>) - @NotEmpty
+
+================================================================================
+FILE: com.mtbs.business.invoice.dto.AddLineItemRequest
+TAG: [BUS-25]
+PURPOSE: Add line item request DTO
+================================================================================
+  FIELDS:
+    - productId (Long) - Nullable (null = free-text item)
+    - description (String) - @NotBlank
+    - quantity (BigDecimal) - @NotNull, @DecimalMin("0.01")
+    - unitPrice (BigDecimal) - @NotNull, @DecimalMin("0")
+
+================================================================================
+FILE: com.mtbs.business.payment.entity.BusinessPayment
+TAG: [BUS-26]
+PURPOSE: Payment received from customer against BusinessInvoice
+================================================================================
+  ANNOTATIONS: @Entity, @Table(name = "business_payments"), soft delete
+  EXTENDS: AuditableEntity
+  FIELDS:
+    - invoiceId (Long) - FK to business_invoices
+    - amount (BigDecimal) - Payment amount
+    - currency (String) - Currency code
+    - method (PaymentMethod) - CARD, UPI, NETBANKING, BANK_TRANSFER
+    - notes (String) - Reference for offline payments
+    - paidAt (Instant) - ACTUAL payment date (can differ from createdAt)
+    - razorpayPaymentLinkId (String) - Null for offline payments
+  NOTE: Supports partial payments (multiple BusinessPayments per invoice)
+
+================================================================================
+FILE: com.mtbs.business.payment.repository.BusinessPaymentRepository
+TAG: [BUS-27]
+PURPOSE: Business payment data access
+================================================================================
+  KEY METHODS:
+    - sumAmountByInvoiceId(Long) - Sum of payments for invoice (COALESCE to 0)
+    - findByPaidAtBetween(Instant from, Instant to) - Payments in date range
+    - sumByMethodInPeriod(Instant from, Instant to) - Revenue by payment method
+      (returns List<Object[]>)
+    - sumPaymentsInPeriod(Instant from, Instant to) - Total payments in period
+
+================================================================================
+FILE: com.mtbs.business.payment.service.BusinessPaymentService
+TAG: [BUS-28]
+PURPOSE: Records customer payments against business invoices
+================================================================================
+  KEY METHODS:
+    - record(Long invoiceId, RecordPaymentRequest) - Records payment,
+      validates amount <= outstanding balance
+    - markInvoicePaidWhenFullyPaid(Long invoiceId) - Auto-transitions invoice
+      from OPEN to PAID when total payments >= invoice total
+    - listByInvoice(Long invoiceId) - Lists payments for invoice
+    - getOutstandingBalance(Long invoiceId) - Returns outstanding amount
+  EVENTS: Publishes BUSINESS_PAYMENT_RECORDED via BusinessEventPublisher
+
+================================================================================
+FILE: com.mtbs.business.payment.controller.BusinessPaymentController
+TAG: [BUS-29]
+PURPOSE: Customer payment REST endpoints
+================================================================================
+  ENDPOINTS:
+    - POST /api/business-payments - Record payment (requires BILLING_MANAGE)
+    - GET /api/business-payments/invoice/{invoiceId} - List by invoice
+      (requires BILLING_MANAGE)
+    - GET /api/business-payments/{id} - Get payment (requires BILLING_MANAGE)
+    - GET /api/business-invoices/{id}/outstanding - Get outstanding balance
+      (requires BILLING_MANAGE)
+
+================================================================================
+FILE: com.mtbs.business.payment.dto.BusinessPaymentResponse
+TAG: [BUS-30]
+PURPOSE: Business payment response DTO
+================================================================================
+  FIELDS:
+    - id (Long)
+    - invoiceId (Long)
+    - invoiceNumber (String)
+    - amount (BigDecimal)
+    - currency (String)
+    - method (PaymentMethod)
+    - notes (String)
+    - paidAt (Instant)
+    - createdAt (Instant)
+
+================================================================================
+FILE: com.mtbs.business.payment.dto.RecordPaymentRequest
+TAG: [BUS-31]
+PURPOSE: Record payment request DTO
+================================================================================
+  FIELDS:
+    - amount (BigDecimal) - @NotNull, @DecimalMin("0.01")
+    - method (PaymentMethod) - @NotNull
+    - paidAt (Instant) - @NotNull (allows backdating for offline payments)
+    - notes (String) - Optional reference
+
+================================================================================
+FILE: com.mtbs.business.report.service.BusinessReportService
+TAG: [BUS-32]
+PURPOSE: Business reporting and analytics
+================================================================================
+  KEY METHODS:
+    - getRevenueReport(Instant from, Instant to) - Revenue by date range:
+      * totalRevenue (BigDecimal)
+      * paidInvoiceCount (Integer)
+      * averageInvoiceValue (BigDecimal)
+      * revenueByMethod (Map<PaymentMethod, BigDecimal>)
+    - getOutstandingReport() - Open invoices split into current vs overdue:
+      * totalOutstanding (BigDecimal)
+      * overdueAmount (BigDecimal)
+      * currentAmount (BigDecimal)
+      * overdueInvoices (List<OutstandingInvoice>)
+      * currentInvoices (List<OutstandingInvoice>)
+    - getMonthlySummary(int year) - 12-month breakdown:
+      * List<MonthlyReportRow> with monthlyInvoiceCount, monthlyTotal,
+        monthlyCollected, monthlyOutstanding
+
+================================================================================
+FILE: com.mtbs.business.report.event.BusinessEventPublisher
+TAG: [BUS-33]
+PURPOSE: Publishes business billing events
+================================================================================
+  EVENTS PUBLISHED: BUSINESS_INVOICE_SENT, BUSINESS_PAYMENT_RECORDED
+
+================================================================================
+FILE: com.mtbs.business.report.controller.BusinessReportController
+TAG: [BUS-34]
+PURPOSE: Business report REST endpoints
+================================================================================
+  ENDPOINTS:
+    - GET /api/reports/revenue?from=&to= - Revenue report (requires BILLING_MANAGE)
+    - GET /api/reports/outstanding - Outstanding report (requires BILLING_MANAGE)
+    - GET /api/reports/monthly?year= - Monthly summary (requires BILLING_MANAGE)
+
+================================================================================
+FILE: com.mtbs.business.report.dto.RevenueReportResponse
+TAG: [BUS-35]
+PURPOSE: Revenue report response DTO
+================================================================================
+  FIELDS:
+    - fromDate, toDate (Instant)
+    - totalRevenue (BigDecimal)
+    - paidInvoiceCount (Integer)
+    - averageInvoiceValue (BigDecimal)
+    - revenueByMethod (Map<PaymentMethod, BigDecimal>)
+
+================================================================================
+FILE: com.mtbs.business.report.dto.OutstandingReportResponse
+TAG: [BUS-36]
+PURPOSE: Outstanding report response DTO
+================================================================================
+  FIELDS:
+    - totalOutstanding (BigDecimal)
+    - overdueAmount (BigDecimal)
+    - currentAmount (BigDecimal)
+    - overdueInvoices (List<OutstandingInvoice>)
+    - currentInvoices (List<OutstandingInvoice>)
+  INNER CLASS OutstandingInvoice:
+    - invoiceId (Long)
+    - invoiceNumber (String)
+    - customerName (String)
+    - amount (BigDecimal)
+    - dueDate (Instant)
+
+================================================================================
+FILE: com.mtbs.business.report.dto.MonthlyReportRow
+TAG: [BUS-37]
+PURPOSE: Monthly summary row DTO
+================================================================================
+  FIELDS:
+    - month (Integer) - 1-12
+    - monthName (String) - "January", etc.
+    - monthlyInvoiceCount (Integer)
+    - monthlyTotal (BigDecimal)
+    - monthlyCollected (BigDecimal)
+    - monthlyOutstanding (BigDecimal)
+
+================================================================================
+================================================================================
+              NOTIFICATION MODULE (com.mtbs.notification)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.notification.service.NotificationService
+TAG: [NOT-1]
+PURPOSE: Async email notification handler
+================================================================================
+  HANDLERS:
+    - @Async handleBillingEvent(BillingEvent) - Billing/auth notifications
+    - @Async handleAuthEvent(AuthNotificationEvent) - Legacy auth notifications
+  CORE METHOD:
+    - sendEmail(String to, String subject, String htmlContent, byte[] attachment,
+      String attachmentName) - Sends email with optional PDF attachment
+  EMAIL RENDERING: Thymeleaf TemplateEngine
+  FALLBACK: Currency falls back to "INR" to prevent null values in templates
+
+================================================================================
+FILE: com.mtbs.notification.config.EmailTemplateConfig
+TAG: [NOT-2]
+PURPOSE: Maps NotificationEvent to email templates
+================================================================================
+  TEMPLATE MAP (NotificationEvent -> TemplateDefinition):
+    AUTH:
+      - USER_REGISTERED -> auth/welcome.html
+      - USER_LOGIN -> auth/login-alert.html
+      - PASSWORD_CHANGED -> auth/password-changed.html
+      - PASSWORD_RESET_REQUESTED -> auth/password-reset.html
+    ONBOARDING:
+      - ONBOARDING_COMPLETED -> onboarding/onboarding-completed.html
+    SUBSCRIPTION:
+      - TRIAL_STARTED -> subscription/trial-started.html
+      - TRIAL_ENDING_SOON -> subscription/trial-ending.html
+      - TRIAL_EXPIRED -> subscription/expired.html
+      - SUBSCRIPTION_ACTIVATED -> subscription/activated.html
+      - SUBSCRIPTION_CANCELLED -> subscription/cancelled.html
+      - SUBSCRIPTION_EXPIRED -> subscription/expired.html
+      - SUBSCRIPTION_RENEWED -> subscription/renewed.html
+    BILLING:
+      - INVOICE_GENERATED -> billing/invoice-generated.html
+      - INVOICE_PAID -> billing/payment-success.html
+      - PAYMENT_FAILED -> billing/payment-failed.html
+    USAGE:
+      - USAGE_LIMIT_WARNING -> usage/limit-warning.html
+      - USAGE_LIMIT_REACHED -> usage/limit-warning.html
+    BUSINESS:
+      - BUSINESS_INVOICE_SENT -> business/invoice-sent.html
+      - BUSINESS_PAYMENT_RECORDED -> business/payment-received.html
+
+================================================================================
+================================================================================
+               SHARED MODULE (com.mtbs.shared)
+================================================================================
+
+================================================================================
+FILE: com.mtbs.shared.entity.BaseEntity
+TAG: [SHD-1]
+PURPOSE: Abstract base entity with ID and soft delete
+================================================================================
+  FIELDS:
+    - id (Long) - @Id, @GeneratedValue
+    - deleted (Boolean) - Soft delete flag (default: false)
+    - deletedAt (Instant) - Deletion timestamp
+    - version (Long) - Optimistic locking (@Version)
+
+================================================================================
+FILE: com.mtbs.shared.entity.AuditableEntity
+TAG: [SHD-2]
+PURPOSE: Adds audit fields to BaseEntity
+================================================================================
+  FIELDS:
+    - createdAt, updatedAt (Instant) - Managed by JPA @CreatedDate/@LastModifiedDate
+    - createdBy, updatedBy (Long) - Managed by AuditorAware
+  EXTENDS: BaseEntity
+
+================================================================================
+FILE: com.mtbs.shared.enums.auth.Status
+TAG: [SHD-3]
+PURPOSE: Common status values for users and tenants
+================================================================================
+  VALUES: ACTIVE, INACTIVE, SUSPENDED, REGISTERED, PENDING_ONBOARDING,
+    ONBOARDING_ABANDONED
+
+================================================================================
+FILE: com.mtbs.shared.enums.plan.Plan
+TAG: [SHD-4]
+PURPOSE: Subscription plan types
+================================================================================
+  VALUES: FREE, PRO, ENTERPRISE
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.BillingCycle
+TAG: [SHD-5]
+PURPOSE: Billing frequency
+================================================================================
+  VALUES: MONTHLY, ANNUAL
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.Currency
+TAG: [SHD-6]
+PURPOSE: Supported currencies
+================================================================================
+  VALUES: INR, USD, EUR
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.InvoiceStatus
+TAG: [SHD-7]
+PURPOSE: Platform invoice status
+================================================================================
+  VALUES: DRAFT, OPEN, PAID, VOID, UNCOLLECTIBLE
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.LineItemType
+TAG: [SHD-8]
+PURPOSE: Invoice line item types
+================================================================================
+  VALUES: SUBSCRIPTION, USAGE, PRORATION, DISCOUNT, TAX
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.PaymentMethod
+TAG: [SHD-9]
+PURPOSE: Payment method types
+================================================================================
+  VALUES: CARD, UPI, NETBANKING, BANK_TRANSFER
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.PaymentStatus
+TAG: [SHD-10]
+PURPOSE: Payment transaction status
+================================================================================
+  VALUES: PENDING, PROCESSING, SUCCEEDED, FAILED, REFUNDED, CANCELLED
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.SubscriptionStatus
+TAG: [SHD-11]
+PURPOSE: Subscription lifecycle status
+================================================================================
+  VALUES: TRIALING, ACTIVE, PAST_DUE, CANCELLED, EXPIRED, UNPAID
+
+================================================================================
+FILE: com.mtbs.shared.enums.billing.UsageMetric
+TAG: [SHD-12]
+PURPOSE: Usage tracking metrics
+================================================================================
+  VALUES: API_CALLS, ACTIVE_USERS, STORAGE_GB
+
+================================================================================
+FILE: com.mtbs.shared.enums.notification.NotificationEvent
+TAG: [SHD-13]
+PURPOSE: All notification event types
+================================================================================
+  AUTH EVENTS: USER_REGISTERED, USER_LOGIN, PASSWORD_CHANGED, PASSWORD_RESET_REQUESTED
+  SUBSCRIPTION EVENTS: TRIAL_STARTED, TRIAL_ENDING_SOON, TRIAL_EXPIRED,
+    SUBSCRIPTION_ACTIVATED, SUBSCRIPTION_CANCELLED, SUBSCRIPTION_EXPIRED,
+    SUBSCRIPTION_RENEWED
+  PLAN EVENTS: PLAN_UPGRADED, PLAN_DOWNGRADED
+  INVOICE EVENTS: INVOICE_GENERATED, INVOICE_PAID, INVOICE_OVERDUE
+  PAYMENT EVENTS: PAYMENT_SUCCEEDED, PAYMENT_FAILED, PAYMENT_RETRY, PAYMENT_REFUNDED
+  USAGE EVENTS: USAGE_LIMIT_WARNING, USAGE_LIMIT_REACHED
+  ONBOARDING EVENTS: ONBOARDING_COMPLETED
+  BUSINESS EVENTS: BUSINESS_INVOICE_SENT, BUSINESS_PAYMENT_RECORDED
+
+================================================================================
+FILE: com.mtbs.shared.exception.BaseException
+TAG: [SHD-14]
+PURPOSE: Abstract base for all application exceptions
+================================================================================
+  FIELDS:
+    - errorCode (ErrorCode)
+    - detail (String) - Optional detail message
+  METHODS:
+    - getHttpStatus() - Returns HTTP status from ErrorCode
+    - getErrorResponse() - Returns ErrorResponse DTO
+
+================================================================================
+FILE: com.mtbs.shared.exception.ErrorCode
+TAG: [SHD-15]
+PURPOSE: Enum of all error codes with HTTP status
+================================================================================
+  CATEGORIES:
+    - AUTH_* (1001-1009) - Authentication/authorization errors
+    - TNT_* (2001-2007) - Tenant errors
+    - TKN_* (3001-3003) - Token errors
+    - RES_* (4001-4005) - Resource CRUD errors
+    - PAY_* (5001-5006) - Payment errors
+    - VAL_* (6001-6003) - Validation errors
+    - GEN_9001 - General errors
+
+================================================================================
+FILE: com.mtbs.shared.exception.ResourceException
+TAG: [SHD-16]
+PURPOSE: Resource CRUD exceptions
+================================================================================
+  FACTORY METHODS:
+    - notFound(String resource, Long id)
+    - notFound(String resource, String identifier)
+    - alreadyExists(String resource, String identifier)
+    - accessDenied()
+    - accessDenied(String message)
+    - invalid(String message)
+    - planLimitExceeded(String metric, long current, long limit)
+
+================================================================================
+FILE: com.mtbs.shared.exception.AuthException
+TAG: [SHD-17]
+PURPOSE: Authentication/authorization exceptions
+================================================================================
+  FACTORY METHODS:
+    - invalidCredentials()
+    - accountLocked()
+    - accountSuspended()
+    - insufficientPermissions()
+
+================================================================================
+FILE: com.mtbs.shared.exception.TenantException
+TAG: [SHD-18]
+PURPOSE: Tenant-related exceptions
+================================================================================
+  FACTORY METHODS:
+    - notFound(Long tenantId)
+    - alreadyExists(String schemaName)
+    - suspended()
+    - onboardingIncomplete()
+
+================================================================================
+FILE: com.mtbs.shared.exception.PaymentException
+TAG: [SHD-19]
+PURPOSE: Payment processing exceptions
+================================================================================
+  FACTORY METHODS:
+    - gatewayError(String message)
+    - verificationFailed()
+    - captureFailed(String reason)
+    - refundFailed(String reason)
+    - paymentLinkFailed(String reason)
+
+================================================================================
+FILE: com.mtbs.shared.exception.TokenException
+TAG: [SHD-20]
+PURPOSE: Token-related exceptions
+================================================================================
+  FACTORY METHODS:
+    - expired()
+    - invalid()
+    - revoked()
+
+================================================================================
+FILE: com.mtbs.shared.multitenancy.TenantContext
+TAG: [SHD-21]
+PURPOSE: Thread-local storage for tenant context
+================================================================================
+  CRITICAL: TenantContext MUST be set BEFORE any @Transactional boundary because
+    Hibernate reads the schema at connection acquisition time.
+  FIELDS (ThreadLocal):
+    - CURRENT_SCHEMA (String)
+    - CURRENT_TENANT (Long)
+  METHODS:
+    - setTenantId(Long)
+    - setCurrentSchema(String)
+    - getTenantId()
+    - getSchemaName()
+    - clear()
+    - hasTenant()
+
+================================================================================
+FILE: com.mtbs.shared.multitenancy.TenantContextHolder
+TAG: [SHD-22]
+PURPOSE: Null-safe facade over TenantContext
+================================================================================
+  DELEGATES TO: TenantContext
+  METHODS:
+    - getCurrentTenantId()
+    - getCurrentSchema()
+
+================================================================================
+FILE: com.mtbs.shared.multitenancy.SchemaBasedMultiTenantConnectionProvider
+TAG: [SHD-23]
+PURPOSE: Hibernate MultiTenantConnectionProvider implementation
+================================================================================
+  KEY METHODS:
+    - getAnyConnection() - Returns connection with search_path = public
+    - getConnection(String tenantIdentifier) - Sets search_path to tenant schema
+    - releaseConnection(String tenantIdentifier, Connection connection) -
+      Resets search_path to public
+
+================================================================================
+FILE: com.mtbs.shared.multitenancy.CurrentTenantIdentifierResolverImpl
+TAG: [SHD-24]
+PURPOSE: Resolves current tenant from TenantContext
+================================================================================
+  DEFAULT SCHEMA: public
+  RESOLVES FROM: TenantContext.getSchemaName()
+
+================================================================================
+FILE: com.mtbs.shared.multitenancy.TenantAwareTaskDecorator
+TAG: [SHD-25]
+PURPOSE: TaskDecorator to propagate tenant context to async/scheduler threads
+================================================================================
+  USED BY: AsyncConfig for ThreadPoolTaskExecutor
+  PROPAGATES: TenantContext tenantId and schemaName to child threads
+
+================================================================================
+FILE: com.mtbs.shared.event.DomainEvent
+TAG: [SHD-26]
+PURPOSE: Marker interface for all domain events
+================================================================================
+  DEFAULT METHODS:
+    - getEventId() - Returns UUID
+    - getOccurredAt() - Returns Instant.now()
+    - getEventType() - Returns simple class name
+
+================================================================================
+FILE: com.mtbs.shared.event.billing.BillingEvent
+TAG: [SHD-27]
+PURPOSE: Event payload for billing notifications
+================================================================================
+  FIELDS:
+    - eventType (NotificationEvent)
+    - tenantId, tenantName, recipientEmail, recipientName
+    - planName, oldPlanName, planPrice, billingCycle
+    - trialEndsAt, subscriptionEndsAt, nextBillingDate
+    - invoiceNumber, invoiceAmount, currency, invoiceDueDate
+    - paymentId, paymentAmount, paymentMethod, retryAttempt, maxRetries
+    - metricName, currentUsage, usageLimit, usagePercent
+    - ipAddress, deviceInfo, eventTime
+    - extra (Map<String,Object>) - Dynamic data
+
+================================================================================
+FILE: com.mtbs.shared.event.auth.AuthEvent
+TAG: [SHD-28]
+PURPOSE: Authentication event (implements DomainEvent)
+================================================================================
+  IMPLEMENTS: DomainEvent
+  FIELDS:
+    - eventType (NotificationEvent) - USER_REGISTERED, PASSWORD_CHANGED
+    - tenantId, tenantName, recipientEmail, recipientName
+    - ipAddress, deviceInfo, eventTime
+    - resetLink, resetTokenExpiresAt (for password reset context)
+
+================================================================================
+FILE: com.mtbs.shared.event.auth.AuthNotificationEvent
+TAG: [SHD-29]
+PURPOSE: Legacy auth notification event
+================================================================================
+  FIELDS:
+    - eventType (NotificationEvent)
+    - recipientEmail, recipientName, tenantName
+    - ipAddress, deviceInfo, eventTime
+    - resetLink, resetTokenExpiresAt (for password reset)
+
+================================================================================
+FILE: com.mtbs.shared.event.business.BusinessEvent
+TAG: [SHD-30]
+PURPOSE: Business billing event (implements DomainEvent)
+================================================================================
+  IMPLEMENTS: DomainEvent
+  FIELDS:
+    - eventType (NotificationEvent) - BUSINESS_INVOICE_SENT, BUSINESS_PAYMENT_RECORDED
+    - tenantId, tenantName, recipientEmail, recipientName
+    - customerId, customerName, customerEmail
+    - invoiceId, invoiceNumber, invoiceAmount, invoiceDueDate
+    - paymentId, paymentAmount, paymentMethod
+    - pdfAttachment (transient byte[]) - NOT serialized to event outbox
+
+================================================================================
+FILE: com.mtbs.shared.annotation.FeatureGate
+TAG: [SHD-31]
+PURPOSE: Feature gate for plan-based feature access control
+================================================================================
+  ATTRIBUTES:
+    - metric (UsageMetric) - The metric to check
+  ENFORCED BY: FeatureGateAspect
+  USAGE: @FeatureGate(UsageMetric.ACTIVE_USERS) on user creation methods
+
+================================================================================
+FILE: com.mtbs.shared.annotation.TrackUsage
+TAG: [SHD-32]
+PURPOSE: Usage tracking annotation for AOP
+================================================================================
+  ATTRIBUTES:
+    - metric (UsageMetric) - The metric to track
+  ENFORCED BY: UsageTrackingAspect
+  USAGE: @TrackUsage(UsageMetric.API_CALLS) on API controller methods
+
+================================================================================
+FILE: com.mtbs.shared.constant.SecurityConstants
+TAG: [SHD-33]
+PURPOSE: Security-related constants
+================================================================================
+  CONSTANTS:
+    - BEARER_PREFIX = "Bearer "
+    - AUTHORIZATION_HEADER = "Authorization"
+    - SUPER_ADMIN_ROLE = "SUPER_ADMIN"
+
+================================================================================
+FILE: com.mtbs.shared.constant.ApiConstants
+TAG: [SHD-34]
+PURPOSE: API constants
+================================================================================
+  CONSTANTS:
+    - API_VERSION = "/api/v1"
+    - DEFAULT_OWNER_ROLE = "ROLE_OWNER"
+
+================================================================================
+FILE: com.mtbs.shared.constant.CookieConstants
+TAG: [SHD-35]
+PURPOSE: Cookie-related constants
+================================================================================
+  CONSTANTS:
+    - ACCESS_TOKEN_COOKIE = "access_token"
+    - REFRESH_TOKEN_COOKIE = "refresh_token"
+    - COOKIE_PATH = "/"
+
+================================================================================
+FILE: com.mtbs.shared.constant.SchemaConstants
+TAG: [SHD-36]
+PURPOSE: Schema naming constants
+================================================================================
+  CONSTANTS:
+    - PUBLIC_SCHEMA = "public"
+    - SCHEMA_NAME_PATTERN = "^[a-z0-9_]+$"
+    - MAX_SCHEMA_NAME_LENGTH = 63
+
+================================================================================
+FILE: com.mtbs.shared.util.SecurityUtils
+TAG: [SHD-37]
+PURPOSE: Security context utilities
+================================================================================
+  METHODS:
+    - getCurrentUserPrincipal() - Returns UserPrincipal
+    - getCurrentUserId() - Returns Long
+    - getCurrentTenantId() - Returns Long
+    - getCurrentSchemaName() - Returns String
+    - getCurrentUserRole() - Returns String
+    - isSuperAdmin() - Returns boolean
+
+================================================================================
+FILE: com.mtbs.shared.util.CookieUtils
+TAG: [SHD-38]
+PURPOSE: Cookie management utilities
+================================================================================
+  METHODS:
+    - createAccessTokenCookie(String token, long maxAge)
+    - createRefreshTokenCookie(String token, long maxAge)
+    - clearAccessTokenCookie()
+    - clearRefreshTokenCookie()
+    - extractTokenFromCookie(HttpServletRequest, String cookieName)
+
+================================================================================
+FILE: com.mtbs.shared.dto.common.ApiResponse
+TAG: [SHD-39]
+PURPOSE: Generic API response wrapper
+================================================================================
+  FIELDS:
+    - success (boolean)
+    - message (String)
+    - data (T)
+    - timestamp (Instant)
+  FACTORY METHODS:
+    - success(T data)
+    - success(String message, T data)
+    - error(String message)
+
+================================================================================
+FILE: com.mtbs.shared.dto.common.PageResponse
+TAG: [SHD-40]
+PURPOSE: Paginated response wrapper for Spring Page
+================================================================================
+  FIELDS:
+    - content (List<T>)
+    - page (int)
+    - size (int)
+    - totalElements (long)
+    - totalPages (int)
+    - first (boolean)
+    - last (boolean)
+
+================================================================================
+FILE: com.mtbs.shared.dto.common.ErrorResponse
+TAG: [SHD-41]
+PURPOSE: Structured error response
+================================================================================
+  FIELDS:
+    - code (String) - Error code
+    - message (String)
+    - detail (String)
+    - timestamp (Instant)
+    - fieldErrors (List<FieldError>) - Optional field validation errors
+  INNER CLASS FieldError:
+    - field (String)
+    - message (String)
+
+================================================================================
+================================================================================
+================================================================================
+                        SQL MIGRATIONS
+================================================================================
+
+================================================================================
+                      PUBLIC SCHEMA MIGRATIONS
+================================================================================
+
+================================================================================
+FILE: db/migration/public/V1__create_tenants.sql
+TAG: [SQL-1-PUBLIC]
+PURPOSE: Creates tenants table
+================================================================================
+  TABLES:
+    - tenants (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, name, schema_name UNIQUE, plan_type, status,
+      owner_email, slug UNIQUE, onboarding_step)
+  INDEXES:
+    - idx_tenants_schema_name ON tenants(schema_name)
+    - idx_tenants_status ON tenants(status)
+    - idx_tenants_slug ON tenants(slug) WHERE slug IS NOT NULL
+
+================================================================================
+FILE: db/migration/public/V2__create_permissions.sql
+TAG: [SQL-1-PUBLIC]
+PURPOSE: Creates permissions table
+================================================================================
+  TABLES:
+    - permissions (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, name UNIQUE, description)
+  INDEXES:
+    - idx_permissions_name ON permissions(name)
+
+================================================================================
+FILE: db/migration/public/V3__create_plans.sql
+TAG: [SQL-1-PUBLIC]
+PURPOSE: Creates plans table
+================================================================================
+  TABLES:
+    - plans (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, name UNIQUE, display_name, description,
+      price_monthly, price_annual, currency, trial_days, max_users,
+      max_api_calls_per_month, max_storage_gb, is_active, is_public)
+  INDEXES:
+    - idx_plans_name ON plans(name)
+    - idx_plans_is_active ON plans(is_active)
+
+================================================================================
+FILE: db/migration/public/V4__seed_permissions.sql
+TAG: [SQL-1-PUBLIC]
+PURPOSE: Seeds 10 permission records
+================================================================================
+  SEEDED PERMISSIONS:
+    1. TENANT_VIEW - View tenant details and settings
+    2. TENANT_MANAGE - Update tenant settings and configurations
+    3. USER_VIEW - View users within the tenant
+    4. USER_MANAGE - Create and update users within the tenant
+    5. USER_DELETE - Delete users from the tenant
+    6. ROLE_VIEW - View roles and their permissions
+    7. ROLE_MANAGE - Create, update and assign roles
+    8. BILLING_MANAGE - Manage subscriptions, invoices and payments
+    9. CUSTOMER_MANAGE - Create, view, update and delete customers
+   10. PRODUCT_MANAGE - Create, view, update and deactivate products
+
+================================================================================
+FILE: db/migration/public/V5__seed_plans.sql
+TAG: [SQL-1-PUBLIC]
+PURPOSE: Seeds FREE, PRO, ENTERPRISE plans
+================================================================================
+  FREE:
+    - price: 0/0 INR, trial: 0 days, users: 3, API: 1000/mo, storage: 1 GB
+  PRO:
+    - price: 999/9999 INR, trial: 14 days, users: 25, API: 50000/mo, storage: 20 GB
+  ENTERPRISE:
+    - price: 4999/49999 INR, trial: 30 days, users: -1 (unlimited),
+      API: -1 (unlimited), storage: 500 GB
+
+================================================================================
+FILE: db/migration/public/V6__seed_super_admin.sql
+TAG: [SQL-1-PUBLIC]
+PURPOSE: Creates platform_admins table and seeds default admin
+================================================================================
+  TABLES:
+    - platform_admins (id, email UNIQUE, password, name, role, active, created_at)
+  DEFAULT ADMIN:
+    - email: admin@platform.com
+    - password: Admin@1234 (BCrypt hash)
+    - role: SUPER_ADMIN
+
+================================================================================
+FILE: db/migration/public/V7__add_tenant_onboarding.sql
+TAG: [SQL-1-PUBLIC]
+PURPOSE: Creates tenant_onboarding table for onboarding wizard
+================================================================================
+  TABLES:
+    - tenant_onboarding (id, tenant_id UNIQUE, company_name, slug UNIQUE,
+      industry, phone, timezone, website, team_size, use_case, business_type,
+      registration_number, billing_address JSONB, registered_address JSONB,
+      kyc_document_ref, kyc_status, selected_plan_id, selected_billing_cycle,
+      razorpay_customer_id, completed_at, plus audit fields)
+  INDEXES:
+    - idx_tenant_onboarding_tenant_id ON tenant_onboarding(tenant_id)
+    - idx_tenant_onboarding_kyc_status ON tenant_onboarding(kyc_status)
+
+================================================================================
+                      TENANT SCHEMA MIGRATIONS
+================================================================================
+
+================================================================================
+FILE: db/migration/tenant/V1__create_roles.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates roles table
+================================================================================
+  TABLES:
+    - roles (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, name UNIQUE)
+  INDEXES:
+    - idx_roles_name ON roles(name)
+
+================================================================================
+FILE: db/migration/tenant/V2__create_users.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates users table
+================================================================================
+  TABLES:
+    - users (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, name, email UNIQUE, password, role_id -> roles(id),
+      status)
+  INDEXES:
+    - idx_users_email ON users(email)
+    - idx_users_status ON users(status)
+
+================================================================================
+FILE: db/migration/tenant/V3__create_refresh_tokens.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates refresh_tokens table
+================================================================================
+  TABLES:
+    - refresh_tokens (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, token UNIQUE, user_id -> users(id), expiry_date,
+      revoked)
+  INDEXES:
+    - idx_refresh_tokens_token ON refresh_tokens(token)
+    - idx_refresh_tokens_user_id ON refresh_tokens(user_id)
+
+================================================================================
+FILE: db/migration/tenant/V4__create_role_permissions.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates role_permissions join table
+================================================================================
+  TABLES:
+    - role_permissions (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, role_id -> roles(id), permission_id,
+      CONSTRAINT uq_role_permission UNIQUE(role_id, permission_id))
+  INDEXES:
+    - idx_role_permissions_role_id ON role_permissions(role_id)
+
+================================================================================
+FILE: db/migration/tenant/V5__create_subscriptions.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates subscriptions table
+================================================================================
+  TABLES:
+    - subscriptions (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, plan_id, status, billing_cycle, trial_start,
+      trial_end, current_period_start, current_period_end, cancelled_at,
+      cancel_at_period_end, razorpay_subscription_id, razorpay_customer_id)
+  INDEXES:
+    - idx_subscriptions_status ON subscriptions(status)
+    - idx_subscriptions_plan_id ON subscriptions(plan_id)
+    - idx_subscriptions_current_period_end ON subscriptions(current_period_end)
+
+================================================================================
+FILE: db/migration/tenant/V6__create_usage_records.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates usage_records table for raw usage events
+================================================================================
+  TABLES:
+    - usage_records (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, subscription_id -> subscriptions(id), metric_type,
+      quantity, recorded_at, billing_period_start, billing_period_end)
+  INDEXES:
+    - idx_usage_records_subscription_id ON usage_records(subscription_id)
+    - idx_usage_records_metric_type ON usage_records(metric_type)
+    - idx_usage_records_billing_period ON usage_records(billing_period_start,
+      billing_period_end)
+
+================================================================================
+FILE: db/migration/tenant/V7__create_usage_summaries.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates usage_summaries table for aggregated usage
+================================================================================
+  TABLES:
+    - usage_summaries (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, subscription_id -> subscriptions(id), metric_type,
+      total_quantity, billing_period_start, billing_period_end, is_billed)
+  INDEXES:
+    - idx_usage_summaries_subscription_id ON usage_summaries(subscription_id)
+    - idx_usage_summaries_metric_billing ON usage_summaries(metric_type,
+      billing_period_start, billing_period_end)
+
+================================================================================
+FILE: db/migration/tenant/V8__create_invoices.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates invoices table for platform billing
+================================================================================
+  TABLES:
+    - invoices (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, subscription_id -> subscriptions(id), invoice_number
+      UNIQUE, status, subtotal, tax_amount, discount_amount, total_amount,
+      currency, due_date, paid_at, razorpay_invoice_id, pdf_url,
+      billing_period_start, billing_period_end)
+  INDEXES:
+    - idx_invoices_subscription_id ON invoices(subscription_id)
+    - idx_invoices_status ON invoices(status)
+    - idx_invoices_invoice_number ON invoices(invoice_number)
+    - idx_invoices_due_date ON invoices(due_date)
+
+================================================================================
+FILE: db/migration/tenant/V9__create_invoice_line_items.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates invoice_line_items table
+================================================================================
+  TABLES:
+    - invoice_line_items (id, deleted, deleted_at, version, created_at,
+      updated_at, created_by, updated_by, invoice_id -> invoices(id),
+      description, quantity, unit_price, total_price, line_item_type)
+  INDEXES:
+    - idx_invoice_line_items_invoice_id ON invoice_line_items(invoice_id)
+
+================================================================================
+FILE: db/migration/tenant/V10__create_payments.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates payments table for platform payments
+================================================================================
+  TABLES:
+    - payments (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, invoice_id -> invoices(id), amount, currency,
+      status, payment_method, razorpay_order_id, razorpay_payment_id,
+      razorpay_signature, idempotency_key UNIQUE, failure_code, failure_message,
+      retry_count, next_retry_at, paid_at)
+  INDEXES:
+    - idx_payments_invoice_id ON payments(invoice_id)
+    - idx_payments_status ON payments(status)
+    - idx_payments_idempotency_key ON payments(idempotency_key)
+    - idx_payments_next_retry_at ON payments(next_retry_at)
+
+================================================================================
+FILE: db/migration/tenant/V11__create_quartz_tables.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates Quartz scheduler tables (QRTZ_*)
+================================================================================
+  TABLES: QRTZ_JOB_DETAILS, QRTZ_TRIGGERS, QRTZ_SIMPLE_TRIGGERS,
+    QRTZ_CRON_TRIGGERS, QRTZ_SIMPROP_TRIGGERS, QRTZ_BLOB_TRIGGERS,
+    QRTZ_CALENDARS, QRTZ_PAUSED_TRIGGER_GRPS, QRTZ_FIRED_TRIGGERS,
+    QRTZ_SCHEDULER_STATE, QRTZ_LOCKS (plus 19 indexes)
+
+================================================================================
+FILE: db/migration/tenant/V12__seed_roles.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Seeds default roles
+================================================================================
+  SEEDED ROLES: OWNER, ADMIN, EMPLOYEE
+
+================================================================================
+FILE: db/migration/tenant/V13__add_role_permissions_unique_constraint.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Adds unique constraint on role_permissions (already defined in V4)
+================================================================================
+  NOTE: Constraint uq_role_permission already defined inline in V4.
+    This migration is intentionally minimal for version sequence consistency.
+
+================================================================================
+FILE: db/migration/tenant/V14__seed_role_permissions.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Seeds role-permission assignments via CROSS JOIN
+================================================================================
+  OWNER: All 10 permissions (CROSS JOIN with public.permissions)
+  ADMIN: All except USER_DELETE, TENANT_MANAGE (8 permissions)
+  EMPLOYEE: USER_VIEW only (1 permission)
+
+================================================================================
+FILE: db/migration/tenant/V15__create_customers.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates customers table for business billing
+================================================================================
+  TABLES:
+    - customers (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, name, email, phone, address, gstin,
+      razorpay_customer_id)
+  INDEXES:
+    - idx_customers_email ON customers(email) WHERE deleted = FALSE
+    - idx_customers_name ON customers(name) WHERE deleted = FALSE
+    - idx_customers_razorpay_id ON customers(razorpay_customer_id)
+      WHERE razorpay_customer_id IS NOT NULL
+
+================================================================================
+FILE: db/migration/tenant/V16__create_products.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates products table for product catalog
+================================================================================
+  TABLES:
+    - products (id, deleted, deleted_at, version, created_at, updated_at,
+      created_by, updated_by, name, description, price, tax_percentage,
+      hsn_sac_code, unit, is_active)
+  INDEXES:
+    - idx_products_name_active ON products(name) WHERE deleted = FALSE
+      AND is_active = TRUE
+    - idx_products_hsn_sac ON products(hsn_sac_code)
+      WHERE hsn_sac_code IS NOT NULL
+
+================================================================================
+FILE: db/migration/tenant/V17__create_business_invoices.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates business_invoices table for manual invoices
+================================================================================
+  TABLES:
+    - business_invoices (id, deleted, deleted_at, version, created_at,
+      updated_at, created_by, updated_by, invoice_number UNIQUE,
+      customer_id -> customers(id), status, subtotal, tax_amount, total_amount,
+      currency, notes, due_date, paid_at, pdf_url, razorpay_payment_link_id)
+  INDEXES: customer lookup, status filtering, due date, created_at ordering
+
+================================================================================
+FILE: db/migration/tenant/V18__create_business_invoice_item.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates business_invoice_items table
+================================================================================
+  TABLES:
+    - business_invoice_items (id, deleted, deleted_at, version, created_at,
+      updated_at, created_by, updated_by, invoice_id -> business_invoices(id),
+      product_id (nullable), description, quantity, unit_price, tax_percentage,
+      tax_amount, total)
+  INDEXES:
+    - idx_business_invoice_items_invoice ON business_invoice_items(invoice_id)
+      WHERE deleted = FALSE
+    - idx_business_invoice_items_product ON business_invoice_items(product_id)
+      WHERE product_id IS NOT NULL AND deleted = FALSE
+
+================================================================================
+FILE: db/migration/tenant/V19__create_business_payments.sql
+TAG: [SQL-2-TENANT]
+PURPOSE: Creates business_payments table for customer payments
+================================================================================
+  TABLES:
+    - business_payments (id, deleted, deleted_at, version, created_at,
+      updated_at, created_by, updated_by, invoice_id -> business_invoices(id),
+      amount, currency, method, notes, paid_at, razorpay_payment_link_id)
+  INDEXES:
+    - idx_business_payments_invoice ON business_payments(invoice_id)
+      WHERE deleted = FALSE
+    - idx_business_payments_paid_at ON business_payments(paid_at DESC)
+      WHERE deleted = FALSE
+    - idx_business_payments_method ON business_payments(method)
+      WHERE deleted = FALSE
+
+================================================================================
+================================================================================
+================================================================================
+                     CONFIGURATION FILES
+================================================================================
+
+================================================================================
+FILE: application.yaml
+TAG: [CFG-1]
+PURPOSE: Base configuration
+================================================================================
+  SECTIONS:
+    - Server: port 8080, Tomcat
+    - Datasource: PostgreSQL, mtbs_db, multi-tenancy properties
+    - JPA: hibernate ddl-auto, naming strategy, show-sql
+    - Flyway: disabled (programmatic execution)
+    - Redis: localhost:6379
+    - Mail: localhost:1025 (no auth)
+    - Quartz: JDBC store with PostgreSQL delegate
+    - Razorpay: test key-id and key-secret
+    - JWT: Base64 secret, 15-min expiration, 7-day refresh
+    - Auth rate limit: 5 attempts per 15 minutes
+    - Password reset TTL: 15 minutes
+    - Logging: INFO root, DEBUG for com.mtbs
+
+================================================================================
+FILE: application-dev.yaml
+TAG: [CFG-2]
+PURPOSE: Development profile overrides
+================================================================================
+  OVERRIDES:
+    - Datasource: multi_tenant_billing database
+    - JPA: SQL logging enabled with TRACE for parameters
+    - Flyway: enabled with initialize-schema: always
+    - Mail: Brevo SMTP relay (smtp-relay.brevo.com:587)
+    - JWT: 15-min expiration, 7-day refresh
+    - Auth rate limit: 15 attempts per 15 minutes
+    - Logging: Comprehensive MDC pattern (request/trace/tenant/user),
+      file logging to logs/app.log
+
+================================================================================
+FILE: application-prod.yaml
+TAG: [CFG-3]
+PURPOSE: Production profile configuration
+================================================================================
+  OVERRIDES:
+    - Datasource: from environment variables (DATABASE_URL, DATABASE_USERNAME,
+      DATABASE_PASSWORD)
+    - Redis: from REDIS_HOST env var (port 6379 fallback)
+    - Mail: from environment variables with TLS enabled
+    - Razorpay: from RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET env vars
+    - JWT: from JWT_SECRET env var
+    - JPA: ddl-auto = none (Flyway manages schema)
+    - Logging: INFO level, no file logging
+
+================================================================================
+================================================================================
+================================================================================
+                       POM.XML DEPENDENCIES
+================================================================================
+TAG: [POM-1]
+
+SPRING BOOT STARTERS:
+  - spring-boot-starter-web - REST APIs
+  - spring-boot-starter-data-jpa - ORM
+  - spring-boot-starter-security - Authentication
+  - spring-boot-starter-validation - Input validation
+  - spring-boot-starter-mail - Email
+  - spring-boot-starter-quartz - Job scheduling
+  - spring-boot-starter-data-redis - Redis
+  - spring-boot-starter-cache - Caching
+  - spring-boot-starter-aop - AOP aspects
+  - spring-boot-starter-actuator - Health checks
+
+DATABASE:
+  - postgresql - JDBC driver
+  - flyway-core - Database migrations
+
+JWT:
+  - jjwt-api (0.12.6) - JWT API
+  - jjwt-impl (0.12.6) - JWT implementation
+  - jjwt-jackson (0.12.6) - JWT JSON support
+
+PDF:
+  - itext8 (kernel, layout, io) - Invoice PDF generation
+
+API DOCS:
+  - springdoc-openapi-starter-webmvc-ui (2.8.4) - Swagger/OpenAPI
+
+TEMPLATE:
+  - thymeleaf - Email templates
+
+MAPSTRUCT:
+  - mapstruct (1.6.3) - Entity-DTO mapping
+
+BUILD:
+  - lombok (1.18.36) - Boilerplate reduction
+  - flyway-maven-plugin (10.22.0) - Migration plugin
+  - maven-compiler-plugin with annotation processors for Lombok/MapStruct
+
+================================================================================
+================================================================================
+================================================================================
+                        DEPENDENCY GRAPH
+================================================================================
+TAG: [DEG-1]
+
+ENTRY POINT
+  MultiTenantBillingSystemApplication
+    |
+    +-- JpaConfig
+    |     +-- AuditorEntityListener (@CreatedBy/@LastModifiedBy)
+    |     +-- SchemaBasedMultiTenantConnectionProvider
+    |     +-- CurrentTenantIdentifierResolverImpl
+    |
+    +-- SecurityConfig (com.mtbs.auth.config)
+    |     +-- JwtAuthenticationFilter
+    |     |     +-- JwtTokenProvider
+    |     |     +-- TenantContext (set from JWT claims)
+    |     +-- PasswordEncoder (BCrypt)
+    |
+    +-- WebMvcConfig (com.mtbs.app.config)
+    |     +-- MdcLoggingFilter
+    |     +-- MdcSecurityEnrichmentFilter
+    |     +-- PlanLimitInterceptor
+    |
+    +-- QuartzConfig
+    |     +-- BillingCycleJob
+    |     +-- SubscriptionExpiryJob
+    |     +-- TrialExpiryJob
+    |     +-- TrialEndingSoonJob
+    |     +-- PaymentRetryJob
+    |     +-- UsageAggregationJob
+    |
+    +-- RedisConfig
+    |     +-- LoginRateLimiter (com.mtbs.auth.service)
+    |     +-- PlanLimitService (com.mtbs.tenant.service)
+    |
+    +-- AsyncConfig
+          +-- TenantAwareTaskDecorator
+
+AUTHENTICATION FLOW
+  AuthController / AdminAuthController (com.mtbs.auth.controller)
+    |
+    +-- AuthService / SuperAdminAuthService
+    |     +-- TenantAuthService
+    |     |     +-- UserRepository, RoleRepository
+    |     |     +-- RefreshTokenService
+    |     |     +-- JwtTokenProvider
+    |     |     +-- AuthEventPublisher
+    |     +-- TenantContext (set before tenant operations)
+    |
+    +-- SignupService
+          +-- TenantRepository, TenantOnboardingRepository
+          +-- TenantFlywayMigrationService
+          +-- TenantAuthService (creates OWNER user)
+
+MULTITENANCY FLOW
+  JwtAuthenticationFilter
+    +-- TenantContext.setCurrentSchema(schemaName)
+    +-- TenantContext.setTenantId(tenantId)
+    |
+    +-- SchemaBasedMultiTenantConnectionProvider.getConnection(schema)
+    |
+    +-- All tenant-scoped repositories use tenant schema automatically
+
+ONBOARDING FLOW
+  OnboardingController (com.mtbs.tenant.controller)
+    |
+    +-- OnboardingService
+    |     +-- OnboardingScopedService (@Transactional writes)
+    |     |     +-- TenantOnboardingRepository
+    |     +-- OnboardingCompletionService
+    |           +-- SubscriptionService
+    |           |     +-- SubscriptionRepository
+    |           |     +-- BillingEventPublisher
+    |           +-- TenantRepository
+
+SUBSCRIPTION LIFECYCLE
+  SubscriptionController (com.mtbs.billing.controller)
+    |
+    +-- SubscriptionService
+    |     +-- PlanService, PlanRepository
+    |     +-- InvoiceService
+    |     |     +-- InvoiceRepository, InvoiceLineItemRepository
+    |     |     +-- InvoicePdfService
+    |     +-- PaymentService
+    |     |     +-- PaymentGatewayPort (RazorpayPaymentGateway)
+    |     |     +-- PaymentRepository
+    |     +-- BillingEventPublisher
+    |     +-- SubscriptionEventPublisher
+
+USAGE TRACKING
+  @TrackUsage annotated endpoint
+    |
+    +-- UsageTrackingAspect (com.mtbs.auth.aspect)
+    |     +-- UsageService.recordUsage()
+    |           +-- UsageRecordRepository
+    |
+    +-- UsageAggregationJob (hourly)
+          +-- UsageService.aggregateUsage()
+                +-- UsageSummaryRepository
+
+FEATURE GATE
+  @FeatureGate annotated method
+    |
+    +-- FeatureGateAspect (com.mtbs.billing.aspect)
+          +-- PlanLimitService.enforceLimitForMetric()
+
+PLAN LIMIT INTERCEPTOR
+  HTTP Request
+    |
+    +-- PlanLimitInterceptor (com.mtbs.tenant.interceptor)
+          +-- Redis increment (api:{tenantId}:{YYYY-MM})
+          +-- PlanLimitService.checkApiCallLimit()
+
+BUSINESS BILLING FLOW
+  CustomerController / ProductController / BusinessInvoiceController
+    |
+    +-- CustomerService
+    |     +-- CustomerRepository
+    |     +-- PaymentGatewayPort.createCustomer()
+    |
+    +-- ProductService
+    |     +-- ProductRepository
+    |
+    +-- BusinessInvoiceService
+    |     +-- BusinessInvoiceRepository
+    |     +-- BusinessInvoiceItemRepository
+    |     +-- CustomerService, ProductService (snapshot values)
+    |     +-- BusinessInvoicePdfService
+    |     +-- BusinessEventPublisher
+    |
+    +-- BusinessPaymentService
+          +-- BusinessPaymentRepository
+          +-- BusinessInvoiceRepository (PAID transition)
+
+BUSINESS REPORTING
+  BusinessReportController
+    |
+    +-- BusinessReportService
+          +-- BusinessInvoiceRepository (revenue, outstanding, monthly)
+          +-- BusinessPaymentRepository (collected amounts)
+
+ADMIN OPERATIONS
+  AdminTenantController / AdminMetricsController (com.mtbs.admin)
+    |
+    +-- AdminTenantService
+    |     +-- TenantRepository
+    |     +-- AdminTenantScopedService
+    |           +-- UserRepository (via TenantContext)
+    |
+    +-- AdminUserService
+    |     +-- TenantContext.setCurrentSchema()
+    |     +-- UserService (soft delete)
+    |
+    +-- AdminMetricsService
+          +-- JdbcTemplate (cross-schema counting)
+
+NOTIFICATIONS
+  BillingEventPublisher / SubscriptionEventPublisher / AuthEventPublisher
+    |
+    +-- NotificationService (com.mtbs.notification)
+          +-- JavaMailSender
+          +-- TemplateEngine (Thymeleaf)
+
+================================================================================
+                              END OF DOCUMENT
+================================================================================

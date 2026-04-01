@@ -1,0 +1,36 @@
+// https://chatgpt.com/g/g-p-69a0336147508191961075250204379b-multi-tenant-billing-system-jfs-project/c/69bbee1c-6f3c-8320-b808-0d6574e86370
+The core is i'm building infrastructure only..
+
+Senior Insight (Important)
+
+You did something very smart (even if unintentionally):
+
+✔ Built infrastructure first
+✔ Now plug in any domain (billing, CRM, ERP, etc.)
+
+That’s exactly how real SaaS platforms are built.
+
+20 - 03 - 26
+added the main Business module domain.
+
+23- Mar
+refactored all files to module based.
+bug in remove line item.........
+
+24 - Mar
+Bug in full subscription endpoints.....
+
+Here’s a **crisp, professional summary** of your work for **26-Mar**:
+
+Work Summary — 26 Mar
+
+* Enhanced application logging using **MDC (Mapped Diagnostic Context)**
+* Implemented **request tracing** with `requestId`, `traceId`, and `spanId`
+* Added **multi-tenant context logging** (`tenantId`, `userId`, `role`)
+* Captured **API metadata** (HTTP method, URI, status, response time)
+* Configured **consistent logging patterns** for both console and file outputs
+* Enabled **trace-based log searchability** for debugging and observability
+
+
+
+tmrw - 2 apr , to fix two cycle dependencies 1. invoice , 2. payment.

@@ -1,0 +1,115 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/multi_tenant_billing
+    username: postgres
+    password: password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        multiTenancy: SCHEMA
+        multi_tenant_connection_provider: com.mtbs.Multitenancy.SchemaBasedMultiTenantConnectionProvider
+        tenant_identifier_resolver: com.mtbs.Multitenancy.CurrentTenantIdentifierResolverImpl
+    open-in-view: false
+
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 6000ms
+
+  mail:
+    host: smtp-relay.brevo.com
+    port: 587
+    username: a4bfb0001@smtp-brevo.com
+    password: xOv0GgE5XDkZz3d4
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: MTBSScheduler-Dev
+            instanceId: AUTO
+          jobStore:
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+            useProperties: true
+            tablePrefix: QRTZ_
+            isClustered: false
+          threadPool:
+            class: org.quartz.simpl.SimpleThreadPool
+            threadCount: 3
+            threadPriority: 5
+
+  cache:
+    type: redis
+
+app:
+  cookie:
+    secure: false
+  auth:
+    rate-limit:
+      max-attempts: 15
+      window-minutes: 15
+
+server:
+  port: 8080
+
+jwt:
+  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  expiration: 900000        # 15 minutes
+  refresh-expiration: 604800000  # 7 days
+
+razorpay:
+  key-id: rzp_test_your_key_id_here
+  key-secret: your_key_secret_here
+  webhook-secret: your_webhook_secret_here
+  currency: INR
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+logging:
+  level:
+    root: INFO
+    com.mtbs: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [req:%X{requestId}] [trace:%X{traceId}] [span:%X{spanId}] [tenant:%X{tenantId}] [user:%X{userId}] [role:%X{role}] [%X{method} %X{uri}] [status:%X{status}] [time:%X{durationMs}ms] - %msg%n"
+
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [req:%X{requestId}] [trace:%X{traceId}] [span:%X{spanId}] [tenant:%X{tenantId}] [user:%X{userId}] [role:%X{role}] [%X{method} %X{uri}] [status:%X{status}] [time:%X{durationMs}ms] - %msg%n"
+  file:
+    name: logs/app.log

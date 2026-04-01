@@ -1,0 +1,507 @@
+================================================================================
+                     MULTITENANT BILLING SYSTEM
+                     PROJECT STRUCTURE
+================================================================================
+
+Project     : MultiTenantBillingSystem
+Package     : com.mtbs
+Java Ver.   : 17
+Spring Boot  : 3.4.3
+Build Tool   : Maven
+Database     : PostgreSQL (schema-per-tenant multi-tenancy)
+
+================================================================================
+                           SOURCE TREE
+================================================================================
+
+com.mtbs/
+|
+├── MultiTenantBillingSystemApplication.java                    [ROOT APPLICATION]
+|
+├── annotation/                                               [CUSTOM ANNOTATIONS]
+│   ├── FeatureGate.java                                    [Feature limit enforcement]
+│   └── TrackUsage.java                                     [Usage metric tracking]
+│
+├── config/                                                 [CONFIGURATION]
+│   ├── EmailTemplateConfig.java                            [Email template mapping]
+│   ├── FlywayConfig.java                                   [Public schema migrations]
+│   ├── JpaConfig.java                                      [JPA + multitenancy setup]
+│   ├── QuartzConfig.java                                   [Scheduler job definitions]
+│   ├── RedisConfig.java                                    [Redis cache + templates]
+│   ├── SecurityConfig.java                                [Spring Security config]
+│   ├── SwaggerConfig.java                                 [OpenAPI / Swagger UI]
+│   └── WebMvcConfig.java                                  [MVC interceptors]
+│
+├── constant/                                               [APPLICATION CONSTANTS]
+│   ├── ApiConstants.java                                  [API version, default roles]
+│   ├── CookieConstants.java                               [Cookie names & paths]
+│   ├── SchemaConstants.java                               [Schema name patterns]
+│   └── SecurityConstants.java                             [JWT bearer prefix, roles]
+│
+├── controller/                                             [REST CONTROLLERS]
+│   ├── admin/
+│   │   ├── AdminMetricsController.java                    [Platform metrics]
+│   │   ├── AdminTenantController.java                     [Tenant management]
+│   │   └── AdminUserController.java                       [Cross-tenant user mgmt]
+│   ├── auth/
+│   │   ├── AdminAuthController.java                       [SuperAdmin login/refresh]
+│   │   └── AuthController.java                            [Tenant login/logout/signup]
+│   ├── billing/
+│   │   ├── InvoiceController.java                         [Invoice CRUD]
+│   │   ├── PaymentController.java                         [Payment processing]
+│   │   ├── SubscriptionController.java                    [Subscription management]
+│   │   └── UsageController.java                           [Usage tracking]
+│   ├── business/
+│   │   ├── BusinessInvoiceController.java                  [Business invoice management]
+│   │   ├── BusinessPaymentController.java                  [Customer payments]
+│   │   ├── BusinessReportController.java                   [Revenue & outstanding reports]
+│   │   ├── CustomerController.java                        [Customer CRUD]
+│   │   └── ProductController.java                         [Product catalog management]
+│   ├── health/
+│   │   ├── DashboardController.java                       [Tenant dashboard]
+│   │   └── HealthCheckController.java                     [Health endpoint]
+│   ├── onboarding/
+│   │   └── OnboardingController.java                      [3-step onboarding flow]
+│   ├── platform/
+│   │   ├── PermissionController.java                      [Permission CRUD]
+│   │   ├── PlanController.java                           [Plan management]
+│   │   └── RoleController.java                           [Role + permission mgmt]
+│   ├── tenant/
+│   │   ├── TenantController.java                         [Tenant self-management]
+│   │   └── UserController.java                           [Tenant user management]
+│   └── webhook/
+│       └── RazorpayWebhookController.java                 [Payment webhooks]
+│
+├── dto/                                                   [DATA TRANSFER OBJECTS]
+│   ├── admin/
+│   │   ├── AdminMetrics.java                              [Platform metrics DTO]
+│   │   ├── AdminTenantDetailResponse.java
+│   │   ├── AdminTenantListResponse.java
+│   │   ├── AdminUserSearchResponse.java
+│   │   ├── ChangeTenantPlanRequest.java
+│   │   └── ChangeTenantStatusRequest.java
+│   ├── auth/
+│   │   ├── AuthResponse.java                             [JWT + token response]
+│   │   ├── ForgotPasswordRequest.java
+│   │   ├── LoginRequest.java
+│   │   ├── LogoutRequest.java
+│   │   ├── RefreshTokenRequest.java
+│   │   ├── ResetPasswordRequest.java
+│   │   ├── SignupRequest.java                            [New tenant signup]
+│   │   ├── SuperAdminLoginRequest.java
+│   │   └── UserProfileResponse.java
+│   ├── billing/
+│   │   ├── InvoiceLineItemResponse.java
+│   │   ├── InvoiceResponse.java
+│   │   ├── OrderResponse.java                            [Razorpay order]
+│   │   ├── PaymentResponse.java
+│   │   ├── RefundResult.java
+│   │   ├── RefundRequest.java
+│   │   ├── TenantBillingDashboard.java                   [Dashboard data]
+│   │   ├── UsageLimitsResponse.java
+│   │   ├── UsageResponse.java
+│   │   └── VerifyPaymentRequest.java
+│   ├── business/
+│   │   ├── AddLineItemRequest.java                      [Add line item to invoice]
+│   │   ├── BusinessInvoiceItemResponse.java
+│   │   ├── BusinessInvoiceResponse.java
+│   │   ├── BusinessPaymentResponse.java
+│   │   ├── CreateBusinessInvoiceRequest.java
+│   │   ├── CreateCustomerRequest.java
+│   │   ├── CreateProductRequest.java
+│   │   ├── CustomerResponse.java
+│   │   ├── MonthlyReportRow.java                        [Revenue report row]
+│   │   ├── OutstandingReportResponse.java
+│   │   ├── ProductResponse.java
+│   │   ├── RecordPaymentRequest.java                    [Record customer payment]
+│   │   ├── RevenueReportResponse.java
+│   │   ├── UpdateCustomerRequest.java
+│   │   └── UpdateProductRequest.java
+│   ├── common/
+│   │   └── ApiResponse.java                             [Standard API wrapper]
+│   ├── onboarding/
+│   │   ├── OnboardingStatusResponse.java
+│   │   ├── OnboardingStep1Request.java
+│   │   ├── OnboardingStep2Request.java
+│   │   ├── OnboardingStep3Request.java
+│   │   └── OnboardingStepResponse.java
+│   ├── permission/
+│   │   ├── CreatePermissionRequest.java
+│   │   └── PermissionResponse.java
+│   ├── plan/
+│   │   ├── CreatePlanRequest.java
+│   │   ├── PlanLimits.java                              [Plan limit snapshot]
+│   │   ├── PlanMapper.java                              [Entity <-> DTO mapper]
+│   │   ├── PlanResponse.java
+│   │   └── UpdatePlanRequest.java
+│   ├── role/
+│   │   ├── AssignPermissionRequest.java
+│   │   ├── CreateRoleRequest.java
+│   │   ├── RoleDetailResponse.java
+│   │   ├── RoleResponse.java
+│   │   └── UpdateRoleRequest.java
+│   ├── subscription/
+│   │   ├── ActivateSubscriptionRequest.java
+│   │   ├── CancelSubscriptionRequest.java
+│   │   ├── ChangePlanRequest.java
+│   │   ├── SubscriptionResponse.java
+│   │   └── StartTrialRequest.java
+│   ├── tenant/
+│   │   ├── TenantResponse.java
+│   │   ├── TenantSchemaInfoResponse.java
+│   │   ├── TenantStatusResponse.java
+│   │   └── UpdateTenantRequest.java
+│   └── user/
+│       ├── ChangeUserRoleRequest.java
+│       ├── ChangeUserStatusRequest.java
+│       ├── CreateUserRequest.java
+│       ├── UpdateOwnProfileRequest.java
+│       ├── UpdateUserRequest.java
+│       └── UserResponse.java
+│
+├── entity/                                                [JPA ENTITIES]
+│   ├── auth/
+│   │   ├── Permission.java                               [PUBLIC schema - RBAC]
+│   │   ├── PlatformAdmin.java                            [PUBLIC schema - admins]
+│   │   ├── RefreshToken.java                             [Tenant-scoped]
+│   │   ├── Role.java                                    [Tenant-scoped]
+│   │   ├── RolePermission.java                           [Tenant-scoped join table]
+│   │   └── User.java                                    [Tenant-scoped]
+│   ├── base/
+│   │   ├── AuditableEntity.java                         [Audit fields mixin]
+│   │   └── BaseEntity.java                              [id + soft-delete + version]
+│   ├── billing/
+│   │   ├── Invoice.java                                 [Tenant-scoped]
+│   │   ├── InvoiceLineItem.java                         [Tenant-scoped]
+│   │   ├── Payment.java                                 [Tenant-scoped]
+│   │   ├── Plan.java                                    [PUBLIC schema]
+│   │   ├── Subscription.java                            [Tenant-scoped]
+│   │   ├── UsageRecord.java                             [Tenant-scoped - raw]
+│   │   └── UsageSummary.java                            [Tenant-scoped - aggregated]
+│   ├── business/
+│   │   ├── BusinessInvoice.java                          [Tenant-scoped - manual invoices]
+│   │   ├── BusinessInvoiceItem.java                      [Tenant-scoped - line items]
+│   │   ├── BusinessPayment.java                         [Tenant-scoped - customer payments]
+│   │   ├── Customer.java                                [Tenant-scoped - end customers]
+│   │   └── Product.java                                 [Tenant-scoped - product catalog]
+│   ├── onboarding/
+│   │   └── TenantOnboarding.java                        [PUBLIC schema - wizard data]
+│   └── tenant/
+│       └── Tenant.java                                   [PUBLIC schema - org]
+│
+├── enums/                                                 [ENUMERATIONS]
+│   ├── auth/
+│   │   └── Status.java                                  [Tenant + User status]
+│   ├── billing/
+│   │   ├── BillingCycle.java                            [MONTHLY, ANNUAL]
+│   │   ├── Currency.java                                [INR, USD, EUR]
+│   │   ├── InvoiceStatus.java                           [DRAFT..UNCOLLECTIBLE]
+│   │   ├── LineItemType.java                           [SUBSCRIPTION..TAX]
+│   │   ├── PaymentMethod.java                           [CARD..BANK_TRANSFER]
+│   │   ├── PaymentStatus.java                          [PENDING..CANCELLED]
+│   │   ├── SubscriptionStatus.java                     [TRIALING..UNPAID]
+│   │   └── UsageMetric.java                            [API_CALLS, ACTIVE_USERS, STORAGE_GB]
+│   ├── notification/
+│   │   └── NotificationEvent.java                      [All event types incl. BUSINESS_*]
+│   └── plan/
+│       └── Plan.java                                    [FREE, PRO, ENTERPRISE]
+│
+├── event/                                                 [APPLICATION EVENTS]
+│   ├── AuthEventPublisher.java                          [Auth event publisher]
+│   ├── AuthNotificationEvent.java                       [Auth event payload]
+│   ├── BillingEvent.java                               [Billing event payload]
+│   ├── BillingEventPublisher.java                      [Billing event publisher]
+│   ├── BusinessEventPublisher.java                     [Business event publisher]
+│   └── SubscriptionEventPublisher.java                 [Subscription event publisher]
+│
+├── exception/                                            [EXCEPTIONS]
+│   ├── AuthException.java                               [Auth-specific errors]
+│   ├── BaseException.java                               [Abstract base]
+│   ├── ErrorCode.java                                   [Error code enum]
+│   ├── GlobalExceptionHandler.java                      [@RestControllerAdvice]
+│   ├── PaymentException.java                            [Payment-specific errors]
+│   ├── ResourceException.java                           [CRUD errors]
+│   ├── TenantException.java                             [Tenant-specific errors]
+│   └── TokenException.java                             [Token errors]
+│
+├── filter/                                               [SERVLET FILTERS]
+│   └── MdcLoggingFilter.java                           [MDC logging filter]
+│
+├── interceptor/                                          [MVC INTERCEPTORS]
+│   └── PlanLimitInterceptor.java                        [API rate limiting]
+│
+├── multitenancy/                                         [MULTITENANCY]
+│   ├── CurrentTenantIdentifierResolverImpl.java         [Hibernate resolver]
+│   ├── SchemaBasedMultiTenantConnectionProvider.java     [Hibernate provider]
+│   └── TenantContext.java                               [ThreadLocal holder]
+│
+├── repository/                                           [DATA ACCESS]
+│   ├── auth/
+│   │   ├── PermissionRepository.java                   [PUBLIC schema]
+│   │   ├── PlatformAdminRepository.java                 [PUBLIC schema]
+│   │   ├── RefreshTokenRepository.java                 [Tenant-scoped]
+│   │   ├── RolePermissionRepository.java               [Tenant-scoped]
+│   │   ├── RoleRepository.java                         [Tenant-scoped]
+│   │   └── UserRepository.java                         [Tenant-scoped]
+│   ├── billing/
+│   │   ├── InvoiceLineItemRepository.java               [Tenant-scoped]
+│   │   ├── InvoiceRepository.java                      [Tenant-scoped]
+│   │   ├── PaymentRepository.java                      [Tenant-scoped]
+│   │   ├── PlanRepository.java                         [PUBLIC schema]
+│   │   ├── SubscriptionRepository.java                 [Tenant-scoped]
+│   │   ├── UsageRecordRepository.java                  [Tenant-scoped]
+│   │   └── UsageSummaryRepository.java                  [Tenant-scoped]
+│   ├── business/
+│   │   ├── BusinessInvoiceItemRepository.java           [Tenant-scoped]
+│   │   ├── BusinessInvoiceRepository.java               [Tenant-scoped]
+│   │   ├── BusinessPaymentRepository.java               [Tenant-scoped]
+│   │   ├── CustomerRepository.java                     [Tenant-scoped]
+│   │   └── ProductRepository.java                       [Tenant-scoped]
+│   ├── onboarding/
+│   │   └── TenantOnboardingRepository.java             [PUBLIC schema]
+│   └── tenant/
+│       └── TenantRepository.java                        [PUBLIC schema]
+│
+├── scheduler/                                           [QUARTZ JOBS]
+│   └── job/
+│       ├── BillingCycleJob.java                         [Daily - invoice generation]
+│       ├── PaymentRetryJob.java                         [Every 6h - retry failed]
+│       ├── SubscriptionExpiryJob.java                   [Hourly - expire PAST_DUE]
+│       ├── TrialEndingSoonJob.java                      [Daily - trial ending alerts]
+│       ├── TrialExpiryJob.java                          [Daily - expire trials]
+│       └── UsageAggregationJob.java                     [Hourly - aggregate usage]
+│
+├── security/                                             [SECURITY]
+│   ├── JwtAuthenticationEntryPoint.java                 [401 response]
+│   ├── JwtAuthenticationFilter.java                    [JWT + TenantContext]
+│   ├── JwtTokenProvider.java                           [JWT generation/validation]
+│   └── UserPrincipal.java                              [UserDetails impl]
+│
+├── service/                                              [BUSINESS LOGIC]
+│   ├── admin/
+│   │   ├── AdminMetricsService.java                    [Platform metrics]
+│   │   ├── AdminTenantScopedService.java                [Admin - user queries]
+│   │   ├── AdminTenantService.java                      [Admin - tenant mgmt]
+│   │   └── AdminUserService.java                        [Admin - cross-tenant users]
+│   ├── aspect/
+│   │   ├── FeatureGateAspect.java                      [@FeatureGate AOP]
+│   │   └── UsageTrackingAspect.java                    [@TrackUsage AOP]
+│   ├── auth/
+│   │   ├── AuthService.java                            [Login/logout orchestration]
+│   │   ├── LoginRateLimiter.java                        [Redis rate limiting]
+│   │   ├── PasswordResetService.java                    [Password reset flow]
+│   │   ├── SignupService.java                          [Phase 0 - tenant signup]
+│   │   ├── SuperAdminAuthService.java                  [Platform admin auth]
+│   │   └── TenantAuthService.java                      [Schema-scoped auth ops]
+│   ├── billing/
+│   │   ├── InvoicePdfService.java                       [PDF generation]
+│   │   ├── InvoiceService.java                         [Invoice lifecycle]
+│   │   ├── PaymentService.java                          [Razorpay integration]
+│   │   ├── SubscriptionService.java                    [Subscription lifecycle]
+│   │   └── UsageService.java                           [Usage recording + aggregation]
+│   ├── business/
+│   │   ├── BusinessInvoicePdfService.java                [Business invoice PDF]
+│   │   ├── BusinessInvoiceService.java                  [Invoice lifecycle]
+│   │   ├── BusinessPaymentService.java                  [Record customer payments]
+│   │   ├── BusinessReportService.java                   [Revenue & outstanding reports]
+│   │   ├── CustomerService.java                         [Customer CRUD]
+│   │   └── ProductService.java                         [Product catalog management]
+│   ├── dashboard/
+│   │   └── TenantBillingDashboardService.java           [Dashboard data]
+│   ├── gateway/
+│   │   ├── PaymentGatewayPort.java                     [Payment gateway interface]
+│   │   └── RazorpayPaymentGateway.java                 [Razorpay implementation]
+│   ├── notification/
+│   │   └── NotificationService.java                     [Email sending]
+│   ├── onboarding/
+│   │   ├── OnboardingCompletionService.java             [Step 3 - finalize + activate]
+│   │   ├── OnboardingScopedService.java                 [@Transactional writes]
+│   │   └── OnboardingService.java                      [3-step orchestration]
+│   ├── plan/
+│   │   ├── PlanLimitService.java                       [Limit enforcement]
+│   │   └── PlanService.java                            [Plan CRUD]
+│   ├── role/
+│   │   ├── PermissionService.java                       [Permission CRUD]
+│   │   └── RoleService.java                            [Role + permission mgmt]
+│   ├── tenant/
+│   │   ├── TenantFlywayMigrationService.java            [Schema provisioning]
+│   │   └── TenantService.java                          [Tenant self-management]
+│   ├── token/
+│   │   └── RefreshTokenService.java                    [Refresh token mgmt]
+│   └── user/
+│       ├── TenantScopedSubscriptionService.java          [Tenant-scoped sub writes]
+│       ├── UserScopedService.java                        [@Transactional user writes]
+│       └── UserService.java                             [User management orchestration]
+│
+└── util/                                                 [UTILITIES]
+    ├── CookieUtils.java                                 [Cookie read/write/clear]
+    └── SecurityUtils.java                               [Security context helpers]
+
+================================================================================
+                          RESOURCES
+================================================================================
+
+src/main/resources/
+|
+├── application.yaml                                      [Base configuration]
+├── application-dev.yaml                                  [Development overrides]
+├── application-prod.yaml                                 [Production overrides]
+|
+├── db/migration/
+│   ├── public/                                          [PUBLIC schema migrations]
+│   │   ├── V1__create_tenants.sql                       [tenants table]
+│   │   ├── V2__create_permissions.sql                   [permissions table]
+│   │   ├── V3__create_plans.sql                        [plans table]
+│   │   ├── V4__seed_permissions.sql                     [10 permission records]
+│   │   ├── V5__seed_plans.sql                          [FREE, PRO, ENTERPRISE]
+│   │   ├── V6__seed_super_admin.sql                    [platform_admins table]
+│   │   └── V7__add_tenant_onboarding.sql               [onboarding data]
+│   │
+│   └── tenant/                                         [TENANT schema migrations]
+│       ├── V1__create_roles.sql                        [roles table]
+│       ├── V2__create_users.sql                        [users table]
+│       ├── V3__create_refresh_tokens.sql               [refresh_tokens table]
+│       ├── V4__create_role_permissions.sql             [role_permissions table]
+│       ├── V5__create_subscriptions.sql                [subscriptions table]
+│       ├── V6__create_usage_records.sql                [usage_records table]
+│       ├── V7__create_usage_summaries.sql              [usage_summaries table]
+│       ├── V8__create_invoices.sql                     [invoices table]
+│       ├── V9__create_invoice_line_items.sql           [invoice_line_items table]
+│       ├── V10__create_payments.sql                    [payments table]
+│       ├── V11__create_quartz_tables.sql               [Quartz JDBC store]
+│       ├── V12__seed_roles.sql                         [OWNER, ADMIN, EMPLOYEE]
+│       ├── V13__add_role_permissions_unique_constraint.sql
+│       ├── V14__seed_role_permissions.sql              [Initial role-permission seeds]
+│       ├── V15__create_customers.sql                   [customers table]
+│       ├── V16__create_products.sql                    [products table]
+│       ├── V17__create_business_invoices.sql           [business_invoices table]
+│       ├── V18__create_business_invoice_item.sql       [business_invoice_items table]
+│       └── V19__create_business_payments.sql           [business_payments table]
+|
+└── templates/emails/                                    [THYMELEAF EMAIL TEMPLATES]
+    ├── auth/
+    │   ├── login-alert.html
+    │   ├── password-changed.html
+    │   ├── password-reset.html
+    │   └── welcome.html
+    ├── billing/
+    │   ├── invoice-generated.html
+    │   ├── payment-failed.html
+    │   └── payment-success.html
+    ├── layout/
+    │   └── base.html
+    ├── plan/
+    │   ├── downgraded.html
+    │   └── upgraded.html
+    ├── subscription/
+    │   ├── activated.html
+    │   ├── cancelled.html
+    │   ├── expired.html
+    │   ├── renewed.html
+    │   ├── trial-ended.html
+    │   ├── trial-ending.html
+    │   └── trial-started.html
+    └── usage/
+        ├── limit-reached.html
+        └── limit-warning.html
+
+================================================================================
+                            TEST SOURCES
+================================================================================
+
+src/test/java/com/mtbs/
+└── MultiTenantBillingSystemApplicationTests.java
+
+================================================================================
+                         CONFIGURATION FILES
+================================================================================
+
+pom.xml                                                  [Maven build + dependencies]
+pom.xml (Flyway plugin config for CLI migrations)
+
+================================================================================
+                        SCHEMA DISTRIBUTION
+================================================================================
+
+PUBLIC SCHEMA           TENANT SCHEMAS              NOTES
+────────────────────────────────────────────────────────────────────────────────
+tenants                 roles                      Tenant creates own schema via
+permissions            users                      FlywayMigrationService on signup
+plans                   refresh_tokens
+platform_admins         role_permissions
+tenant_onboarding       customers                  [V15]
+                         products                   [V16]
+                         subscriptions              business_invoices              [V17]
+                         usage_records              business_invoice_items         [V18]
+                         usage_summaries           business_payments              [V19]
+                         invoices
+                         invoice_line_items
+                         payments
+                         QRTZ_* (Quartz tables)
+
+CROSS-SCHEMA NOTES:
+  - tenant.schema_name       -> PostgreSQL schema name (one per tenant)
+  - subscriptions.plan_id    -> public.plans.id (denormalized, no FK)
+  - role_permissions.permission_id -> public.permissions.id (via CROSS JOIN)
+  - tenant_onboarding.tenant_id -> public.tenants.id (logical FK only)
+
+================================================================================
+                         PERMISSIONS (10 TOTAL)
+================================================================================
+
+Name              Description
+────────────────────────────────────────────────────────────────────────────────
+TENANT_VIEW       View tenant details and settings
+TENANT_MANAGE     Update tenant settings and configurations
+USER_VIEW         View users within the tenant
+USER_MANAGE       Create and update users within the tenant
+USER_DELETE       Delete users from the tenant
+ROLE_VIEW         View roles and their permissions
+ROLE_MANAGE       Create, update and assign roles
+BILLING_MANAGE    Manage subscriptions, invoices and payments
+CUSTOMER_MANAGE   Create, view, update and delete customers
+PRODUCT_MANAGE    Create, view, update and deactivate products
+
+================================================================================
+                         ROLE PERMISSIONS
+================================================================================
+
+Role      | Permissions
+────────────────────────────────────────────────────────────────────────────────
+OWNER     | ALL 10 permissions (via CROSS JOIN with public.permissions)
+ADMIN     | All except USER_DELETE, TENANT_MANAGE
+EMPLOYEE  | USER_VIEW only
+
+================================================================================
+                         PLAN LIMITS
+================================================================================
+
+Plan        | Price (M/A) | Trial | Users | API Calls     | Storage
+────────────────────────────────────────────────────────────────────────────────
+FREE        | 0/0 INR    | 0     | 3     | 1,000/month    | 1 GB
+PRO         | 999/9999   | 14    | 25    | 50,000/month   | 20 GB
+ENTERPRISE | 4999/49999 | 30    | -1    | -1 (unlimited) | 500 GB
+                                              (-1 = unlimited)
+
+================================================================================
+                         USAGE METRICS
+================================================================================
+
+Metric        | Description
+────────────────────────────────────────────────────────────────────────────────
+API_CALLS     | Number of API calls made by the tenant
+ACTIVE_USERS  | Number of active users in the billing period
+STORAGE_GB    | Storage consumed in gigabytes
+
+================================================================================
+                         BUILD ARTIFACTS
+================================================================================
+
+pom.xml                                               Maven project descriptor
+  Artifact: MultiTenantBillingSystem-0.0.1-SNAPSHOT.jar
+  Spring Boot 3.4.3
+  Target: Java 17
+
+================================================================================
+                              END OF FILE
+================================================================================
