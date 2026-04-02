@@ -4,6 +4,7 @@ import com.mtbs.business.product.dto.CreateProductRequest;
 import com.mtbs.business.product.dto.ProductResponse;
 import com.mtbs.business.product.dto.UpdateProductRequest;
 import com.mtbs.business.product.entity.Product;
+import com.mtbs.business.product.mapper.ProductMapper;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.business.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,7 @@ import java.util.stream.Collectors;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final ProductMapper productMapper;
 
     // ── Create ────────────────────────────────────────────────────────────────
 
@@ -57,14 +59,14 @@ public class ProductService {
 
         Product saved = productRepository.save(product);
         log.info("Product created — id={}, name={}", saved.getId(), saved.getName());
-        return mapToResponse(saved);
+        return productMapper.toResponse(saved);
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public ProductResponse getById(Long productId) {
-        return mapToResponse(findOrThrow(productId));
+        return productMapper.toResponse(findOrThrow(productId));
     }
 
     @Transactional(readOnly = true)
@@ -72,7 +74,7 @@ public class ProductService {
         return productRepository.searchProducts(
                 StringUtils.hasText(search) ? search.trim() : null,
                 pageable
-        ).map(this::mapToResponse);
+        ).map(productMapper::toResponse);
     }
 
     /**
@@ -83,7 +85,7 @@ public class ProductService {
     public List<ProductResponse> listActiveForInvoice() {
         return productRepository.findAllByIsActiveTrueOrderByNameAsc()
                 .stream()
-                .map(this::mapToResponse)
+                .map(productMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -109,7 +111,7 @@ public class ProductService {
 
         Product saved = productRepository.save(product);
         log.info("Product updated — id={}", saved.getId());
-        return mapToResponse(saved);
+        return productMapper.toResponse(saved);
     }
 
     // ── Deactivate (preferred over delete) ────────────────────────────────────
@@ -156,20 +158,4 @@ public class ProductService {
                 .orElseThrow(() -> ResourceException.notFound("Product", id));
     }
 
-    // ── Response mapping ──────────────────────────────────────────────────────
-
-    public ProductResponse mapToResponse(Product product) {
-        return ProductResponse.builder()
-                .id(product.getId())
-                .name(product.getName())
-                .description(product.getDescription())
-                .price(product.getPrice())
-                .taxPercentage(product.getTaxPercentage())
-                .hsnSacCode(product.getHsnSacCode())
-                .unit(product.getUnit())
-                .isActive(product.getIsActive())
-                .createdAt(product.getCreatedAt())
-                .updatedAt(product.getUpdatedAt())
-                .build();
-    }
 }

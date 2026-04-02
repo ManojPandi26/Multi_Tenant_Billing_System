@@ -8,6 +8,7 @@ import com.mtbs.billing.entity.Invoice;
 import com.mtbs.billing.entity.Payment;
 import com.mtbs.billing.event.PaymentCapturedEventPublisher;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
+import com.mtbs.billing.mapper.PaymentMapper;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.shared.enums.billing.PaymentStatus;
@@ -51,6 +52,7 @@ public class PaymentService {
     private final OutboxEventPublisher outboxEventPublisher;
     private final SubscriptionRepository subscriptionRepository;
     private final TenantService tenantService;
+    private final PaymentMapper paymentMapper;
 
 
     // ── Initiate payment ──────────────────────────────────────────────────────
@@ -172,7 +174,7 @@ public class PaymentService {
                 .module("BILLING")
                 .build(), "Payment", payment.getId());
 
-        return mapToResponse(payment);
+        return paymentMapper.toResponse(payment);
     }
 
     // ── Webhook handlers (called by RazorpayWebhookController) ───────────────
@@ -325,7 +327,7 @@ public class PaymentService {
                 .severity("WARN")
                 .build(), "Payment", payment.getId());
 
-        return mapToResponse(payment);
+        return paymentMapper.toResponse(payment);
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
@@ -333,13 +335,13 @@ public class PaymentService {
     public PaymentResponse getPaymentById(Long id) {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> ResourceException.notFound("Payment", id));
-        return mapToResponse(payment);
+        return paymentMapper.toResponse(payment);
     }
 
     public List<PaymentResponse> getPaymentsByInvoice(Long invoiceId) {
         return paymentRepository.findByInvoiceId(invoiceId)
                 .stream()
-                .map(this::mapToResponse)
+                .map(paymentMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -356,24 +358,5 @@ public class PaymentService {
         } catch (Exception e) {
             log.warn("Failed to fire {} event for paymentId={}: {}", eventType, payment.getId(), e.getMessage());
         }
-    }
-
-    private PaymentResponse mapToResponse(Payment payment) {
-        return PaymentResponse.builder()
-                .id(payment.getId())
-                .invoiceId(payment.getInvoiceId())
-                .amount(payment.getAmount())
-                .currency(payment.getCurrency())
-                .status(payment.getStatus())
-                .paymentMethod(payment.getPaymentMethod())
-                .razorpayOrderId(payment.getRazorpayOrderId())
-                .razorpayPaymentId(payment.getRazorpayPaymentId())
-                .failureCode(payment.getFailureCode())
-                .failureMessage(payment.getFailureMessage())
-                .retryCount(payment.getRetryCount())
-                .nextRetryAt(payment.getNextRetryAt())
-                .paidAt(payment.getPaidAt())
-                .createdAt(payment.getCreatedAt())
-                .build();
     }
 }

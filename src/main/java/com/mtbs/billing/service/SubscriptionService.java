@@ -10,6 +10,7 @@ import com.mtbs.billing.dto.OrderResponse;
 import com.mtbs.billing.dto.InvoiceResponse;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
+import com.mtbs.billing.mapper.SubscriptionMapper;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.enums.billing.BillingCycle;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
@@ -86,6 +87,7 @@ public class SubscriptionService {
     private final PaymentService paymentService;
     private final ProrationService prorationService;
     private final OutboxEventPublisher outboxEventPublisher;
+    private final SubscriptionMapper subscriptionMapper;
 
     @Value("${razorpay.key-id}")
     private String razorpayKeyId;
@@ -93,7 +95,7 @@ public class SubscriptionService {
     // ── Queries ───────────────────────────────────────────────────────────────
 
     public SubscriptionResponse getCurrentSubscription() {
-        return mapToResponse(requireActiveOrTrialing());
+        return mapToSubscriptionResponse(requireActiveOrTrialing());
     }
 
     /**
@@ -281,7 +283,7 @@ public class SubscriptionService {
                 .module("BILLING")
                 .build(), "Subscription", subscription.getId());
 
-        return mapToResponse(subscriptionRepository.findById(subscription.getId())
+        return mapToSubscriptionResponse(subscriptionRepository.findById(subscription.getId())
                 .orElseThrow());
     }
 
@@ -326,7 +328,7 @@ public class SubscriptionService {
             subscriptionRepository.save(subscription);
             log.info("Billing cycle change ANNUAL→MONTHLY scheduled at {} — tenantId={}",
                     subscription.getCurrentPeriodEnd(), TenantContext.getTenantId());
-            return mapToResponse(subscription);
+            return mapToSubscriptionResponse(subscription);
         }
     }
 
@@ -386,7 +388,7 @@ public class SubscriptionService {
                 .severity("WARN")
                 .build(), "Subscription", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToSubscriptionResponse(saved);
     }
 
     // ── Reactivate ────────────────────────────────────────────────────────────
@@ -422,7 +424,7 @@ public class SubscriptionService {
                 .module("BILLING")
                 .build(), "Subscription", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToSubscriptionResponse(saved);
     }
 
     // ── Activate (trial → paid) ───────────────────────────────────────────────
@@ -467,7 +469,7 @@ public class SubscriptionService {
                 .module("BILLING")
                 .build(), "Subscription", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToSubscriptionResponse(saved);
     }
 
     // ── Scheduler-only ────────────────────────────────────────────────────────
@@ -653,7 +655,7 @@ public class SubscriptionService {
                     .currentPeriodStart(now)
                     .currentPeriodEnd(now.plus(Duration.ofDays(365)))
                     .build();
-            return mapToResponse(subscriptionRepository.save(sub));
+            return mapToSubscriptionResponse(subscriptionRepository.save(sub));
         }
 
         Subscription sub = Subscription.builder()
@@ -682,7 +684,7 @@ public class SubscriptionService {
                 .module("BILLING")
                 .build(), "Subscription", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToSubscriptionResponse(saved);
     }
 
     /**
@@ -722,66 +724,39 @@ public class SubscriptionService {
                 .module("BILLING")
                 .build(), "Subscription", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToSubscriptionResponse(saved);
     }
 
     // ── Public mapping (used by TenantBillingDashboardService) ───────────────
 
-    public SubscriptionResponse mapToResponse(Subscription sub) {
+    public SubscriptionResponse mapToSubscriptionResponse(Subscription sub) {
         Plan plan = planService.getPlanById(sub.getPlanId());
+        SubscriptionResponse response = subscriptionMapper.toResponseWithPlan(sub, plan);
 
-        Long trialDaysRemaining = null;
         if (sub.getStatus() == SubscriptionStatus.TRIALING && sub.getTrialEnd() != null) {
             long days = ChronoUnit.DAYS.between(Instant.now(), sub.getTrialEnd());
-            trialDaysRemaining = Math.max(days, 0);
+            response.setTrialDaysRemaining(Math.max(days, 0));
         }
 
-        // Surface pending upgrade info
-        boolean upgradePending = sub.hasUpgradePending();
-        String pendingOrderId = sub.getUpgradePendingRazorpayOrderId();
-        String pendingPlanName = null;
-        if (upgradePending && sub.getUpgradePendingPlanId() != null) {
+        if (sub.hasUpgradePending() && sub.getUpgradePendingPlanId() != null) {
             try {
-                pendingPlanName = planService.getPlanById(sub.getUpgradePendingPlanId())
-                        .getDisplayName();
+                response.setPendingUpgradePlanName(
+                        planService.getPlanById(sub.getUpgradePendingPlanId()).getDisplayName());
             } catch (Exception ignored) { }
         }
 
-        // Surface scheduled downgrade info
-        String scheduledDowngradePlan = null;
         if (sub.hasScheduledDowngrade()) {
             try {
-                scheduledDowngradePlan = planService
-                        .getPlanById(sub.getScheduledDowngradePlanId()).getDisplayName();
+                response.setScheduledDowngradePlan(
+                        planService.getPlanById(sub.getScheduledDowngradePlanId()).getDisplayName());
             } catch (Exception ignored) { }
         }
 
-        return SubscriptionResponse.builder()
-                .id(sub.getId())
-                .planId(sub.getPlanId())
-                .planName(plan.getName())
-                .planDisplayName(plan.getDisplayName())
-                .status(sub.getStatus())
-                .billingCycle(sub.getBillingCycle())
-                .trialStart(sub.getTrialStart())
-                .trialEnd(sub.getTrialEnd())
-                .trialDaysRemaining(trialDaysRemaining)
-                .currentPeriodStart(sub.getCurrentPeriodStart())
-                .currentPeriodEnd(sub.getCurrentPeriodEnd())
-                .priceMonthly(plan.getPriceMonthly())
-                .priceAnnual(plan.getPriceAnnual())
-                .currency(plan.getCurrency() != null ? plan.getCurrency() : "INR")
-                .cancelledAt(sub.getCancelledAt())
-                .cancelAtPeriodEnd(sub.getCancelAtPeriodEnd())
-                .upgradePending(upgradePending)
-                .pendingUpgradeOrderId(pendingOrderId)
-                .pendingUpgradePlanName(pendingPlanName)
-                .scheduledBillingCycle(sub.getScheduledBillingCycle())
-                .scheduledDowngradePlan(scheduledDowngradePlan)
-                .downgradeReason(sub.getDowngradeReason())
-                .createdAt(sub.getCreatedAt())
-                .updatedAt(sub.getUpdatedAt())
-                .build();
+        return response;
+    }
+
+    public SubscriptionResponse mapToResponse(Subscription sub) {
+        return mapToSubscriptionResponse(sub);
     }
 
     // ── Private: core upgrade flow ────────────────────────────────────────────

@@ -6,6 +6,7 @@ import com.mtbs.business.payment.dto.BusinessPaymentResponse;
 import com.mtbs.business.payment.dto.RecordPaymentRequest;
 import com.mtbs.business.invoice.entity.BusinessInvoice;
 import com.mtbs.business.payment.entity.BusinessPayment;
+import com.mtbs.business.payment.mapper.BusinessPaymentMapper;
 import com.mtbs.business.customer.entity.Customer;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
@@ -51,6 +52,7 @@ public class BusinessPaymentService {
     private final TenantService tenantService;
     private final OutboxEventPublisher outboxEventPublisher;
     private final PaymentGatewayPort paymentGateway;
+    private final BusinessPaymentMapper paymentMapper;
 
     // ── Record payment ────────────────────────────────────────────────────────
 
@@ -113,19 +115,18 @@ public class BusinessPaymentService {
             firePaymentEvent(invoice, customer, saved);
         }
 
-        return mapToResponse(saved);
+        return paymentMapper.toResponse(saved);
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public List<BusinessPaymentResponse> listByInvoice(Long invoiceId) {
-        // Validate invoice exists — throws 404 if not
         invoiceService.getEntityById(invoiceId);
 
         return paymentRepository.findAllByInvoiceId(invoiceId)
                 .stream()
-                .map(this::mapToResponse)
+                .map(paymentMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -177,19 +178,4 @@ public class BusinessPaymentService {
         }
     }
 
-    // ── Response mapping ──────────────────────────────────────────────────────
-
-    private BusinessPaymentResponse mapToResponse(BusinessPayment payment) {
-        return BusinessPaymentResponse.builder()
-                .id(payment.getId())
-                .invoiceId(payment.getInvoiceId())
-                .amount(payment.getAmount())
-                .currency(payment.getCurrency())
-                .method(payment.getMethod())
-                .notes(payment.getNotes())
-                .paidAt(payment.getPaidAt())
-                .razorpayPaymentLinkId(payment.getRazorpayPaymentLinkId())
-                .createdAt(payment.getCreatedAt())
-                .build();
-    }
 }

@@ -2,6 +2,7 @@ package com.mtbs.admin.service;
 
 import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.auth.entity.User;
+import com.mtbs.auth.mapper.UserMapper;
 import com.mtbs.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,22 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminTenantScopedService {
 
     private final UserRepository userRepository;
+    private final UserMapper userMapper;
 
     @Transactional(readOnly = true)
     public Page<UserResponse> getUsersInTenant(Pageable pageable) {
         log.info("Fetching all users in current schema context (Admin Triggered)");
-        return userRepository.findAll(pageable).map(this::mapToResponse);
-    }
-
-    private UserResponse mapToResponse(User user) {
-        return UserResponse.builder()
-                .id(user.getId())
-                .name(user.getName())
-                .email(user.getEmail())
-                .roleName(user.getRole() != null ? user.getRole().getName() : null)
-                .status(user.getStatus())
-                .createdAt(user.getCreatedAt())
-                .updatedAt(user.getUpdatedAt())
-                .build();
+        return userRepository.findAll(pageable).map(userMapper::toResponseWithRole);
     }
 }
