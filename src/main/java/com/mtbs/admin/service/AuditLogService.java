@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mtbs.admin.dto.AuditLogResponse;
 import com.mtbs.admin.mapper.AdminMapper;
 import com.mtbs.admin.repository.AuditLogRepository;
-import com.mtbs.shared.entity.audit.AuditLog;
+import com.mtbs.admin.entity.AuditLog;
 import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.multitenancy.TenantContext;

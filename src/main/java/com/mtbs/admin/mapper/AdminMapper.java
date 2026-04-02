@@ -1,7 +1,7 @@
 package com.mtbs.admin.mapper;
 
 import com.mtbs.admin.dto.AuditLogResponse;
-import com.mtbs.shared.entity.audit.AuditLog;
+import com.mtbs.admin.entity.AuditLog;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.NullValuePropertyMappingStrategy;

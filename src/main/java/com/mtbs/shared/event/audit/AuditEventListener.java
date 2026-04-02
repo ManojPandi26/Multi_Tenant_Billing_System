@@ -1,7 +1,7 @@
 package com.mtbs.shared.event.audit;
 
 import com.mtbs.admin.repository.AuditLogRepository;
-import com.mtbs.shared.entity.audit.AuditLog;
+import com.mtbs.admin.entity.AuditLog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;

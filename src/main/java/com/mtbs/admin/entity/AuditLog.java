@@ -1,4 +1,4 @@
-package com.mtbs.shared.entity.audit;
+package com.mtbs.admin.entity;
 
 import com.mtbs.shared.entity.AuditableEntity;
 import com.mtbs.shared.enums.audit.AuditAction;

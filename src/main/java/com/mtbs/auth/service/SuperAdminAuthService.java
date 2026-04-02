@@ -3,7 +3,7 @@ package com.mtbs.auth.service;
 import com.mtbs.admin.repository.AuditLogRepository;
 import com.mtbs.auth.dto.auth.AuthResponse;
 import com.mtbs.auth.entity.PlatformAdmin;
-import com.mtbs.shared.entity.audit.AuditLog;
+import com.mtbs.admin.entity.AuditLog;
 import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.AuthException;

@@ -1,6 +1,6 @@
 package com.mtbs.admin.repository;
 
-import com.mtbs.shared.entity.audit.AuditLog;
+import com.mtbs.admin.entity.AuditLog;
 import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
 import org.springframework.data.domain.Page;
