@@ -4,6 +4,8 @@ import com.mtbs.billing.dto.InvoiceLineItemResponse;
 import com.mtbs.billing.dto.InvoiceResponse;
 import com.mtbs.billing.entity.Invoice;
 import com.mtbs.billing.entity.InvoiceLineItem;
+import com.mtbs.billing.mapper.InvoiceMapper;
+import com.mtbs.billing.mapper.InvoiceLineItemMapper;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.billing.entity.Subscription;
@@ -62,6 +64,8 @@ public class InvoiceService {
     private final PlanService planService;
     private final OutboxEventPublisher outboxEventPublisher;
     private final TenantService tenantService;
+    private final InvoiceMapper invoiceMapper;
+    private final InvoiceLineItemMapper lineItemMapper;
 
     // ── Internal — called by BillingCycleJob ──────────────────────────────────
 
@@ -130,7 +134,7 @@ public class InvoiceService {
                 .module("BILLING")
                 .build(), "Invoice", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToInvoiceResponse(saved);
     }
 
     /**
@@ -164,7 +168,7 @@ public class InvoiceService {
                 .module("BILLING")
                 .build(), "Invoice", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToInvoiceResponse(saved);
     }
 
     /**
@@ -188,11 +192,11 @@ public class InvoiceService {
     // ── Public API — exposed via InvoiceController ────────────────────────────
 
     public InvoiceResponse getInvoiceById(Long invoiceId) {
-        return mapToResponse(getInvoiceEntity(invoiceId));
+        return mapToInvoiceResponse(getInvoiceEntity(invoiceId));
     }
 
     public Page<InvoiceResponse> listInvoices(Pageable pageable) {
-        return invoiceRepository.findAll(pageable).map(this::mapToResponse);
+        return invoiceRepository.findAll(pageable).map(this::mapToInvoiceResponse);
     }
 
     /**
@@ -229,7 +233,7 @@ public class InvoiceService {
                 .severity("WARN")
                 .build(), "Invoice", saved.getId());
 
-        return mapToResponse(saved);
+        return mapToInvoiceResponse(saved);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -291,40 +295,16 @@ public class InvoiceService {
 
     // ── Response mapping ──────────────────────────────────────────────────────
 
-    public InvoiceResponse mapToResponse(Invoice invoice) {
+    private InvoiceResponse mapToInvoiceResponse(Invoice invoice) {
+        InvoiceResponse response = invoiceMapper.toResponse(invoice);
+        
         List<InvoiceLineItemResponse> items = lineItemRepository
                 .findByInvoiceId(invoice.getId())
                 .stream()
-                .map(this::mapLineItemToResponse)
+                .map(lineItemMapper::toResponse)
                 .collect(Collectors.toList());
 
-        return InvoiceResponse.builder()
-                .id(invoice.getId())
-                .subscriptionId(invoice.getSubscriptionId())
-                .invoiceNumber(invoice.getInvoiceNumber())
-                .status(invoice.getStatus())
-                .subtotal(invoice.getSubtotal())
-                .taxAmount(invoice.getTaxAmount())
-                .discountAmount(invoice.getDiscountAmount())
-                .totalAmount(invoice.getTotalAmount())
-                .currency(invoice.getCurrency())
-                .dueDate(invoice.getDueDate())
-                .paidAt(invoice.getPaidAt())
-                .billingPeriodStart(invoice.getBillingPeriodStart())
-                .billingPeriodEnd(invoice.getBillingPeriodEnd())
-                .lineItems(items)
-                .createdAt(invoice.getCreatedAt())
-                .build();
-    }
-
-    private InvoiceLineItemResponse mapLineItemToResponse(InvoiceLineItem item) {
-        return InvoiceLineItemResponse.builder()
-                .id(item.getId())
-                .description(item.getDescription())
-                .quantity(item.getQuantity())
-                .unitPrice(item.getUnitPrice())
-                .totalPrice(item.getTotalPrice())
-                .lineItemType(item.getLineItemType())
-                .build();
+        response.setLineItems(items);
+        return response;
     }
 }

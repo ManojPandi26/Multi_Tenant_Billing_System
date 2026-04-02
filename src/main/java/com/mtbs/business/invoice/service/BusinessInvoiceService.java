@@ -9,6 +9,8 @@ import com.mtbs.business.invoice.dto.CreateBusinessInvoiceRequest;
 import com.mtbs.business.invoice.dto.CreateBusinessInvoiceRequest.InvoiceLineItemRequest;
 import com.mtbs.business.invoice.entity.BusinessInvoice;
 import com.mtbs.business.invoice.entity.BusinessInvoiceItem;
+import com.mtbs.business.invoice.mapper.BusinessInvoiceMapper;
+import com.mtbs.business.invoice.mapper.BusinessInvoiceItemMapper;
 import com.mtbs.business.customer.entity.Customer;
 import com.mtbs.business.product.entity.Product;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
@@ -79,6 +81,8 @@ public class BusinessInvoiceService {
     private final ProductService productService;
     private final TenantService tenantService;
     private final OutboxEventPublisher outboxEventPublisher;
+    private final BusinessInvoiceMapper invoiceMapper;
+    private final BusinessInvoiceItemMapper itemMapper;
 
     private final BusinessInvoicePdfService pdfService;
     private final PaymentGatewayPort paymentGateway;
@@ -122,7 +126,7 @@ public class BusinessInvoiceService {
 
         log.info("BusinessInvoice created — id={}, number={}, customerId={}",
                 saved.getId(), saved.getInvoiceNumber(), customer.getId());
-        return mapToResponse(saved, customer);
+        return mapToInvoiceResponse(saved, customer);
     }
 
     // ── Line item management (DRAFT only) ─────────────────────────────────────
@@ -142,7 +146,7 @@ public class BusinessInvoiceService {
 
         log.info("Line item added to invoice {} — description={}", invoiceId, request.getDescription());
         Customer customer = customerService.getEntityById(invoice.getCustomerId());
-        return mapToResponse(invoice, customer);
+        return mapToInvoiceResponse(invoice, customer);
     }
 
     @Transactional
@@ -166,7 +170,7 @@ public class BusinessInvoiceService {
 
         log.info("Line item {} removed from invoice {}", itemId, invoiceId);
         Customer customer = customerService.getEntityById(invoice.getCustomerId());
-        return mapToResponse(invoice, customer);
+        return mapToInvoiceResponse(invoice, customer);
     }
 
     // ── Lifecycle transitions ─────────────────────────────────────────────────
@@ -195,9 +199,8 @@ public class BusinessInvoiceService {
         BusinessInvoice saved = invoiceRepository.save(invoice);
         log.info("Invoice finalized — id={}, dueDate={}", invoiceId, saved.getDueDate());
 
-        // Load customer for response — do NOT touch invoice.items
         Customer customer = customerService.getEntityById(saved.getCustomerId());
-        return mapToResponse(saved, customer);
+        return mapToInvoiceResponse(saved, customer);
     }
 
     /**
@@ -230,7 +233,7 @@ public class BusinessInvoiceService {
         fireInvoiceSentEvent(invoice, customer, tenantName, pdfBytes);
 
         log.info("Invoice send event fired — id={}, customerEmail={}", invoiceId, customer.getEmail());
-        return mapToResponse(invoice, customer);
+        return mapToInvoiceResponse(invoice, customer);
     }
 
     /**
@@ -252,7 +255,7 @@ public class BusinessInvoiceService {
         invoice.setStatus(InvoiceStatus.VOID);
         BusinessInvoice saved = invoiceRepository.save(invoice);
         log.info("Invoice voided — id={}", invoiceId);
-        return mapToResponse(saved, customerService.getEntityById(saved.getCustomerId()));
+        return mapToInvoiceResponse(saved, customerService.getEntityById(saved.getCustomerId()));
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
@@ -260,13 +263,13 @@ public class BusinessInvoiceService {
     @Transactional(readOnly = true)
     public BusinessInvoiceResponse getById(Long invoiceId) {
         BusinessInvoice invoice = findOrThrow(invoiceId);
-        return mapToResponse(invoice, customerService.getEntityById(invoice.getCustomerId()));
+        return mapToInvoiceResponse(invoice, customerService.getEntityById(invoice.getCustomerId()));
     }
 
     @Transactional(readOnly = true)
     public Page<BusinessInvoiceResponse> list(Long customerId, InvoiceStatus status, Pageable pageable) {
         return invoiceRepository.findWithFilters(customerId, status, pageable)
-                .map(inv -> mapToResponse(inv,
+                .map(inv -> mapToInvoiceResponse(inv,
                         customerService.getEntityById(inv.getCustomerId())));
     }
 
@@ -504,47 +507,24 @@ public class BusinessInvoiceService {
 
     // ── Response mapping ──────────────────────────────────────────────────────
 
-    public BusinessInvoiceResponse mapToResponse(BusinessInvoice invoice, Customer customer) {
+    private BusinessInvoiceResponse mapToInvoiceResponse(BusinessInvoice invoice, Customer customer) {
+        BusinessInvoiceResponse response = invoiceMapper.toResponseWithCustomer(
+                invoice, customer.getName(), customer.getEmail());
+
         List<BusinessInvoiceItem> items = invoice.getItems() != null && !invoice.getItems().isEmpty()
                 ? invoice.getItems()
                 : itemRepository.findAllByInvoiceId(invoice.getId());
 
         List<BusinessInvoiceItemResponse> itemResponses = items.stream()
-                .map(this::mapItemToResponse)
+                .map(itemMapper::toResponse)
                 .collect(Collectors.toList());
 
-        return BusinessInvoiceResponse.builder()
-                .id(invoice.getId())
-                .invoiceNumber(invoice.getInvoiceNumber())
-                .customerId(invoice.getCustomerId())
-                .customerName(customer.getName())
-                .customerEmail(customer.getEmail())
-                .status(invoice.getStatus())
-                .subtotal(invoice.getSubtotal())
-                .taxAmount(invoice.getTaxAmount())
-                .totalAmount(invoice.getTotalAmount())
-                .currency(invoice.getCurrency())
-                .notes(invoice.getNotes())
-                .dueDate(invoice.getDueDate())
-                .paidAt(invoice.getPaidAt())
-                .razorpayPaymentLinkId(invoice.getRazorpayPaymentLinkId())
-                .items(itemResponses)
-                .createdAt(invoice.getCreatedAt())
-                .updatedAt(invoice.getUpdatedAt())
-                .build();
+        response.setItems(itemResponses);
+        return response;
     }
 
-    private BusinessInvoiceItemResponse mapItemToResponse(BusinessInvoiceItem item) {
-        return BusinessInvoiceItemResponse.builder()
-                .id(item.getId())
-                .productId(item.getProductId())
-                .description(item.getDescription())
-                .quantity(item.getQuantity())
-                .unitPrice(item.getUnitPrice())
-                .taxPercentage(item.getTaxPercentage())
-                .taxAmount(item.getTaxAmount())
-                .total(item.getTotal())
-                .build();
+    public BusinessInvoiceResponse mapToResponse(BusinessInvoice invoice, Customer customer) {
+        return mapToInvoiceResponse(invoice, customer);
     }
 
 

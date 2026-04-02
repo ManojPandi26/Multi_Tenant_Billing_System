@@ -7,6 +7,7 @@ import com.mtbs.admin.dto.ChangeTenantStatusRequest;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.tenant.entity.Tenant;
+import com.mtbs.tenant.mapper.TenantMapper;
 import com.mtbs.shared.enums.plan.Plan;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.event.audit.AuditLogEvent;
@@ -42,6 +43,7 @@ public class AdminTenantService {
     private final AdminTenantScopedService adminTenantScopedService;
     private final JdbcTemplate jdbcTemplate;
     private final OutboxEventPublisher outboxEventPublisher;
+    private final TenantMapper tenantMapper;
 
     @Transactional(readOnly = true)
     public Page<AdminTenantListResponse> getAllTenants(Status status, Plan planType, Pageable pageable) {
@@ -109,7 +111,7 @@ public class AdminTenantService {
                 .module("ADMIN_TENANT_MANAGEMENT")
                 .build(), "Tenant", tenant.getId());
 
-        return mapToTenantResponse(tenant);
+        return tenantMapper.toResponse(tenant);
     }
 
     @Transactional
@@ -137,7 +139,7 @@ public class AdminTenantService {
                 .module("ADMIN_TENANT_MANAGEMENT")
                 .build(), "Tenant", tenant.getId());
 
-        return mapToTenantResponse(tenant);
+        return tenantMapper.toResponse(tenant);
     }
 
     public Page<UserResponse> getTenantUsers(Long tenantId, Pageable pageable) {
@@ -193,17 +195,6 @@ public class AdminTenantService {
                 .planType(tenant.getPlanType())
                 .status(tenant.getStatus())
                 .userCount(userCount != null ? userCount : 0L)
-                .createdAt(tenant.getCreatedAt())
-                .build();
-    }
-
-    private TenantResponse mapToTenantResponse(Tenant tenant) {
-        return TenantResponse.builder()
-                .id(tenant.getId())
-                .name(tenant.getName())
-                .schemaName(tenant.getSchemaName())
-                .planType(tenant.getPlanType())
-                .status(tenant.getStatus())
                 .createdAt(tenant.getCreatedAt())
                 .build();
     }

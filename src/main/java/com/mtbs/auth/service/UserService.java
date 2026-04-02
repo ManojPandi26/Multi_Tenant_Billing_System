@@ -2,6 +2,7 @@ package com.mtbs.auth.service;
 
 import com.mtbs.auth.dto.user.*;
 import com.mtbs.auth.entity.User;
+import com.mtbs.auth.mapper.UserMapper;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
@@ -41,22 +42,23 @@ public class UserService {
     private final TenantService tenantService;
     private final OutboxEventPublisher outboxEventPublisher;
     private final PlanLimitService planLimitService;
+    private final UserMapper userMapper;
 
     public Page<UserResponse> getAllUsers(Pageable pageable) {
         log.info("Fetching all users in current schema context");
-        return userRepository.findAllWithRole(pageable).map(this::mapToResponse);
+        return userRepository.findAllWithRole(pageable).map(userMapper::toResponseWithRole);
     }
 
     public UserResponse getUserById(Long userId) {
         log.info("Fetching user id: {}", userId);
         User user = userRepository.findByIdWithRole(userId)
                 .orElseThrow(() -> ResourceException.notFound("User", String.valueOf(userId)));
-        return mapToResponse(user);
+        return userMapper.toResponseWithRole(user);
     }
 
     public UserResponse createUser(CreateUserRequest request) {
         log.info("Delegating user creation: {}", request.getEmail());
-        planLimitService.enforceUserLimit(); // ADD THIS — before any save
+        planLimitService.enforceUserLimit();
         User user = userScopedService.saveNewUser(request, passwordEncoder);
 
         outboxEventPublisher.save(AuditLogEvent.builder()
@@ -75,7 +77,7 @@ public class UserService {
                 .module("USER_MANAGEMENT")
                 .build(), "User", user.getId());
 
-        return mapToResponse(user);
+        return userMapper.toResponseWithRole(user);
     }
 
     public UserResponse updateUser(Long userId, UpdateUserRequest request) {
@@ -97,7 +99,7 @@ public class UserService {
                 .module("USER_MANAGEMENT")
                 .build(), "User", userId);
 
-        return mapToResponse(user);
+        return userMapper.toResponseWithRole(user);
     }
 
     public void deleteUser(Long userId) {
@@ -141,7 +143,7 @@ public class UserService {
                 .module("USER_MANAGEMENT")
                 .build(), "User", userId);
 
-        return mapToResponse(user);
+        return userMapper.toResponseWithRole(user);
     }
 
     public UserResponse changeUserStatus(Long userId, ChangeUserStatusRequest request) {
@@ -165,7 +167,7 @@ public class UserService {
                 .module("USER_MANAGEMENT")
                 .build(), "User", userId);
 
-        return mapToResponse(user);
+        return userMapper.toResponseWithRole(user);
     }
 
     public UserResponse getMyProfile() {
@@ -202,18 +204,6 @@ public class UserService {
                 .module("USER_MANAGEMENT")
                 .build(), "User", user.getId());
 
-        return mapToResponse(user);
-    }
-
-    private UserResponse mapToResponse(User user) {
-        return UserResponse.builder()
-                .id(user.getId())
-                .name(user.getName())
-                .email(user.getEmail())
-                .roleName(user.getRole() != null ? user.getRole().getName() : null)
-                .status(user.getStatus())
-                .createdAt(user.getCreatedAt())
-                .updatedAt(user.getUpdatedAt())
-                .build();
+        return userMapper.toResponseWithRole(user);
     }
 }

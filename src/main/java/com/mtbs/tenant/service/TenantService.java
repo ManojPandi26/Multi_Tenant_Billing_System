@@ -5,6 +5,7 @@ import com.mtbs.tenant.dto.tenant.TenantSchemaInfoResponse;
 import com.mtbs.tenant.dto.tenant.TenantStatusResponse;
 import com.mtbs.tenant.dto.tenant.UpdateTenantRequest;
 import com.mtbs.tenant.entity.Tenant;
+import com.mtbs.tenant.mapper.TenantMapper;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.event.audit.AuditLogEvent;
@@ -38,6 +39,7 @@ public class TenantService {
         private final SubscriptionRepository subscriptionRepository;
         private final JdbcTemplate jdbcTemplate;
         private final com.mtbs.billing.event.outbox.OutboxEventPublisher outboxEventPublisher;
+        private final TenantMapper tenantMapper;
 
         @Transactional(readOnly = true)
         public TenantResponse getTenantById(Long tenantId) {
@@ -45,7 +47,7 @@ public class TenantService {
                 Tenant tenant = tenantRepository.findById(tenantId)
                                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
-                return mapToResponse(tenant);
+                return tenantMapper.toResponse(tenant);
         }
 
         public String fetchTenantName() {
@@ -67,7 +69,7 @@ public class TenantService {
                         Map.of("name", request.getName()),
                         "Tenant updated");
 
-                return mapToResponse(tenant);
+                return tenantMapper.toResponse(tenant);
         }
 
         @Transactional(readOnly = true)
@@ -160,17 +162,6 @@ public class TenantService {
                 fireAuditEvent(AuditAction.STATUS_CHANGE, tenant.getId(), tenant.getName(),
                         Map.of("status", Status.ACTIVE.name()),
                         "Tenant reactivated");
-        }
-
-        private TenantResponse mapToResponse(Tenant tenant) {
-                return TenantResponse.builder()
-                                .id(tenant.getId())
-                                .name(tenant.getName())
-                                .schemaName(tenant.getSchemaName())
-                                .planType(tenant.getPlanType())
-                                .status(tenant.getStatus())
-                                .createdAt(tenant.getCreatedAt())
-                                .build();
         }
 
         private void fireAuditEvent(AuditAction action, Long entityId, String entityName,

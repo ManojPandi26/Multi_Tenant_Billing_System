@@ -4,6 +4,7 @@ import com.mtbs.business.customer.dto.CreateCustomerRequest;
 import com.mtbs.business.customer.dto.CustomerResponse;
 import com.mtbs.business.customer.dto.UpdateCustomerRequest;
 import com.mtbs.business.customer.entity.Customer;
+import com.mtbs.business.customer.mapper.CustomerMapper;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.business.customer.repository.CustomerRepository;
 import com.mtbs.billing.gateway.PaymentGatewayPort;
@@ -34,6 +35,7 @@ public class CustomerService {
 
     private final CustomerRepository customerRepository;
     private final PaymentGatewayPort paymentGateway;
+    private final CustomerMapper customerMapper;
 
     // ── Create ────────────────────────────────────────────────────────────────
 
@@ -61,26 +63,24 @@ public class CustomerService {
 
         Customer saved = customerRepository.save(customer);
         log.info("Customer created — id={}, razorpayId={}", saved.getId(), saved.getRazorpayCustomerId());
-        return mapToResponse(saved);
+        return customerMapper.toResponse(saved);
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public CustomerResponse getById(Long customerId) {
-        return mapToResponse(findOrThrow(customerId));
+        return customerMapper.toResponse(findOrThrow(customerId));
     }
 
     @Transactional(readOnly = true)
     public Page<CustomerResponse> list(String search, Pageable pageable) {
         if (StringUtils.hasText(search)) {
-            // Non-blank search — use keyword query (no null params in JPQL)
             return customerRepository.searchByKeyword(search.trim(), pageable)
-                    .map(this::mapToResponse);
+                    .map(customerMapper::toResponse);
         }
-        // No search — use plain findAll variant (no JPQL involved, no type inference)
         return customerRepository.findAllByOrderByCreatedAtDesc(pageable)
-                .map(this::mapToResponse);
+                .map(customerMapper::toResponse);
     }
 
     // ── Update ────────────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ public class CustomerService {
 
         Customer saved = customerRepository.save(customer);
         log.info("Customer updated — id={}", saved.getId());
-        return mapToResponse(saved);
+        return customerMapper.toResponse(saved);
     }
 
     // ── Delete ────────────────────────────────────────────────────────────────
@@ -164,19 +164,4 @@ public class CustomerService {
         }
     }
 
-    // ── Response mapping ──────────────────────────────────────────────────────
-
-    public CustomerResponse mapToResponse(Customer customer) {
-        return CustomerResponse.builder()
-                .id(customer.getId())
-                .name(customer.getName())
-                .email(customer.getEmail())
-                .phone(customer.getPhone())
-                .address(customer.getAddress())
-                .gstin(customer.getGstin())
-                .razorpayCustomerId(customer.getRazorpayCustomerId())
-                .createdAt(customer.getCreatedAt())
-                .updatedAt(customer.getUpdatedAt())
-                .build();
-    }
 }
