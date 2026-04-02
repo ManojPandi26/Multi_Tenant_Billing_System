@@ -5,6 +5,9 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.shared.multitenancy.TenantContext;
@@ -19,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -169,7 +173,6 @@ public class PasswordResetService {
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
 
-        // Fire PASSWORD_CHANGED notification
         outboxEventPublisher.save(AuthNotificationEvent.builder()
                 .eventType(NotificationEvent.PASSWORD_CHANGED)
                 .recipientEmail(user.getEmail())
@@ -178,6 +181,22 @@ public class PasswordResetService {
                 .deviceInfo(deviceInfo)
                 .tenantName(tenant.getName())
                 .eventTime(Instant.now())
+                .build(), "User", user.getId());
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.PASSWORD_CHANGED)
+                .entityType(AuditEntityType.USER)
+                .entityId(user.getId())
+                .entityName(user.getEmail())
+                .whoUserId(user.getId())
+                .whoUserEmail(user.getEmail())
+                .whoUserName(user.getName())
+                .contextTenantId(tenant.getId())
+                .contextTenantName(tenant.getName())
+                .contextIpAddress(ipAddress)
+                .contextUserAgent(deviceInfo)
+                .description("Password reset via email link")
+                .module("AUTH")
                 .build(), "User", user.getId());
     }
 

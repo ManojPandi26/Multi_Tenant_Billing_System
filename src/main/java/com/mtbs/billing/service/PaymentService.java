@@ -14,12 +14,16 @@ import com.mtbs.shared.enums.billing.PaymentStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
 import com.mtbs.shared.event.billing.PaymentCapturedEvent;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.PaymentException;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.InvoiceRepository;
 import com.mtbs.billing.repository.PaymentRepository;
 import com.mtbs.billing.gateway.PaymentGatewayPort;
+import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +33,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -45,6 +50,7 @@ public class PaymentService {
     private final PaymentGatewayPort paymentGateway;
     private final OutboxEventPublisher outboxEventPublisher;
     private final SubscriptionRepository subscriptionRepository;
+    private final TenantService tenantService;
 
 
     // ── Initiate payment ──────────────────────────────────────────────────────
@@ -95,6 +101,18 @@ public class PaymentService {
 
         paymentRepository.save(payment);
         log.info("Payment order created — invoiceId={}, orderId={}", invoice.getId(), order.getOrderId());
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.PAYMENT_INITIATED)
+                .entityType(AuditEntityType.PAYMENT)
+                .entityId(payment.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesAfter(Map.of("amount", payment.getAmount().toString(), "currency", payment.getCurrency()))
+                .description("Payment initiated: " + payment.getAmount() + " " + payment.getCurrency())
+                .module("BILLING")
+                .build(), "Payment", payment.getId());
+
         return order;
     }
 
@@ -141,6 +159,19 @@ public class PaymentService {
         log.info("Payment verified and captured — paymentId={}", payment.getId());
 
         firePaymentEvent(NotificationEvent.PAYMENT_SUCCEEDED, payment);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.PAYMENT_COMPLETED)
+                .entityType(AuditEntityType.PAYMENT)
+                .entityId(payment.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", "PENDING"))
+                .changesAfter(Map.of("status", "SUCCEEDED", "razorpayPaymentId", payment.getRazorpayPaymentId()))
+                .description("Payment completed: " + payment.getAmount() + " " + payment.getCurrency())
+                .module("BILLING")
+                .build(), "Payment", payment.getId());
+
         return mapToResponse(payment);
     }
 
@@ -158,6 +189,16 @@ public class PaymentService {
             invoiceService.markInvoicePaid(payment.getInvoiceId(), razorpayPaymentId, Instant.now());
             log.info("Webhook: payment success processed — razorpayPaymentId={}", razorpayPaymentId);
             firePaymentEvent(NotificationEvent.PAYMENT_SUCCEEDED, payment);
+
+            outboxEventPublisher.save(AuditLogEvent.builder()
+                    .action(AuditAction.PAYMENT_COMPLETED)
+                    .entityType(AuditEntityType.PAYMENT)
+                    .entityId(payment.getId())
+                    .contextTenantId(TenantContext.getTenantId())
+                    .contextTenantName(tenantService.fetchTenantName())
+                    .description("Payment completed via webhook: " + payment.getAmount() + " " + payment.getCurrency())
+                    .module("BILLING")
+                    .build(), "Payment", payment.getId());
         });
     }
 
@@ -182,6 +223,18 @@ public class PaymentService {
 
             paymentRepository.save(payment);
             firePaymentEvent(NotificationEvent.PAYMENT_FAILED, payment);
+
+            outboxEventPublisher.save(AuditLogEvent.builder()
+                    .action(AuditAction.PAYMENT_FAILED)
+                    .entityType(AuditEntityType.PAYMENT)
+                    .entityId(payment.getId())
+                    .contextTenantId(TenantContext.getTenantId())
+                    .contextTenantName(tenantService.fetchTenantName())
+                    .changesAfter(Map.of("status", "FAILED", "failureCode", failureCode, "failureMessage", failureMessage))
+                    .description("Payment failed: " + failureCode + " - " + failureMessage)
+                    .module("BILLING")
+                    .severity("WARN")
+                    .build(), "Payment", payment.getId());
         });
     }
 
@@ -217,6 +270,17 @@ public class PaymentService {
                 payment.getRetryCount(), paymentId, order.getOrderId());
 
         firePaymentEvent(NotificationEvent.PAYMENT_RETRY, payment);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.PAYMENT_INITIATED)
+                .entityType(AuditEntityType.PAYMENT)
+                .entityId(payment.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .description("Payment retry #" + payment.getRetryCount() + " initiated")
+                .module("BILLING")
+                .build(), "Payment", payment.getId());
+
         return order;
     }
 
@@ -247,6 +311,20 @@ public class PaymentService {
 
         log.info("Payment refunded — paymentId={}, amountPaise={}", paymentId, refundAmountPaise);
         firePaymentEvent(NotificationEvent.PAYMENT_REFUNDED, payment);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.PAYMENT_REFUNDED)
+                .entityType(AuditEntityType.PAYMENT)
+                .entityId(payment.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", "SUCCEEDED"))
+                .changesAfter(Map.of("status", "REFUNDED", "refundAmount", String.valueOf(refundAmountPaise)))
+                .description("Payment refunded: " + (amountInRupees != null ? amountInRupees : payment.getAmount()) + " " + payment.getCurrency())
+                .module("BILLING")
+                .severity("WARN")
+                .build(), "Payment", payment.getId());
+
         return mapToResponse(payment);
     }
 

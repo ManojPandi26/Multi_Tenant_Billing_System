@@ -12,11 +12,15 @@ import com.mtbs.shared.enums.billing.LineItemType;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.InvoiceLineItemRepository;
 import com.mtbs.billing.repository.InvoiceRepository;
 import com.mtbs.tenant.service.PlanService;
+import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -30,6 +34,7 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -56,6 +61,7 @@ public class InvoiceService {
     private final SubscriptionRepository subscriptionRepository;
     private final PlanService planService;
     private final OutboxEventPublisher outboxEventPublisher;
+    private final TenantService tenantService;
 
     // ── Internal — called by BillingCycleJob ──────────────────────────────────
 
@@ -111,6 +117,19 @@ public class InvoiceService {
                 saved.getId(), saved.getInvoiceNumber(), subscriptionId);
 
         fireInvoiceEvent(NotificationEvent.INVOICE_GENERATED, saved, plan);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.INVOICE_GENERATED)
+                .entityType(AuditEntityType.INVOICE)
+                .entityId(saved.getId())
+                .entityName(saved.getInvoiceNumber())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesAfter(Map.of("invoiceNumber", saved.getInvoiceNumber(), "amount", saved.getTotalAmount().toString(), "currency", saved.getCurrency()))
+                .description("Invoice generated: " + saved.getInvoiceNumber())
+                .module("BILLING")
+                .build(), "Invoice", saved.getId());
+
         return mapToResponse(saved);
     }
 
@@ -131,6 +150,20 @@ public class InvoiceService {
         Invoice saved = invoiceRepository.save(invoice);
 
         log.info("Invoice finalized — invoiceId={}, dueDate={}", saved.getId(), saved.getDueDate());
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.INVOICE_SENT)
+                .entityType(AuditEntityType.INVOICE)
+                .entityId(saved.getId())
+                .entityName(saved.getInvoiceNumber())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", "DRAFT"))
+                .changesAfter(Map.of("status", "OPEN"))
+                .description("Invoice finalized and sent: " + saved.getInvoiceNumber())
+                .module("BILLING")
+                .build(), "Invoice", saved.getId());
+
         return mapToResponse(saved);
     }
 
@@ -181,6 +214,21 @@ public class InvoiceService {
         Invoice saved = invoiceRepository.save(invoice);
 
         log.info("Invoice voided — invoiceId={}", invoiceId);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.INVOICE_VOIDED)
+                .entityType(AuditEntityType.INVOICE)
+                .entityId(saved.getId())
+                .entityName(saved.getInvoiceNumber())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", invoice.getStatus().name()))
+                .changesAfter(Map.of("status", "VOID"))
+                .description("Invoice voided: " + saved.getInvoiceNumber())
+                .module("BILLING")
+                .severity("WARN")
+                .build(), "Invoice", saved.getId());
+
         return mapToResponse(saved);
     }
 

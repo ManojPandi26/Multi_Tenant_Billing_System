@@ -7,6 +7,9 @@ import com.mtbs.tenant.dto.tenant.UpdateTenantRequest;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.shared.multitenancy.TenantContext;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Handles self-management operations for the currently authenticated Tenant.
@@ -33,6 +37,7 @@ public class TenantService {
         private final TenantRepository tenantRepository;
         private final SubscriptionRepository subscriptionRepository;
         private final JdbcTemplate jdbcTemplate;
+        private final com.mtbs.billing.event.outbox.OutboxEventPublisher outboxEventPublisher;
 
         @Transactional(readOnly = true)
         public TenantResponse getTenantById(Long tenantId) {
@@ -57,6 +62,10 @@ public class TenantService {
 
                 tenant.setName(request.getName());
                 tenant = tenantRepository.save(tenant);
+
+                fireAuditEvent(AuditAction.UPDATE, tenant.getId(), tenant.getName(),
+                        Map.of("name", request.getName()),
+                        "Tenant updated");
 
                 return mapToResponse(tenant);
         }
@@ -133,6 +142,10 @@ public class TenantService {
 
                 tenant.setStatus(Status.INACTIVE);
                 tenantRepository.save(tenant);
+
+                fireAuditEvent(AuditAction.STATUS_CHANGE, tenant.getId(), tenant.getName(),
+                        Map.of("status", Status.INACTIVE.name()),
+                        "Tenant deactivated by owner");
         }
 
         @Transactional
@@ -143,6 +156,10 @@ public class TenantService {
 
                 tenant.setStatus(Status.ACTIVE);
                 tenantRepository.save(tenant);
+
+                fireAuditEvent(AuditAction.STATUS_CHANGE, tenant.getId(), tenant.getName(),
+                        Map.of("status", Status.ACTIVE.name()),
+                        "Tenant reactivated");
         }
 
         private TenantResponse mapToResponse(Tenant tenant) {
@@ -154,5 +171,28 @@ public class TenantService {
                                 .status(tenant.getStatus())
                                 .createdAt(tenant.getCreatedAt())
                                 .build();
+        }
+
+        private void fireAuditEvent(AuditAction action, Long entityId, String entityName,
+                                   Map<String, Object> changes, String description) {
+                try {
+                        outboxEventPublisher.save(AuditLogEvent.builder()
+                                .action(action)
+                                .entityType(AuditEntityType.TENANT)
+                                .entityId(entityId)
+                                .entityName(entityName)
+                                .whoUserId(SecurityUtils.getCurrentUserId())
+                                .whoUserEmail(SecurityUtils.getCurrentUserEmail())
+                                .whoUserName(SecurityUtils.getCurrentUserName())
+                                .whoRole(SecurityUtils.getCurrentRole())
+                                .contextTenantId(TenantContext.getTenantId())
+                                .contextTenantName(entityName)
+                                .changesAfter(changes)
+                                .description(description)
+                                .module("TENANT_MANAGEMENT")
+                                .build(), "Tenant", entityId);
+                } catch (Exception e) {
+                        log.warn("Failed to fire audit event: {}", e.getMessage());
+                }
         }
 }

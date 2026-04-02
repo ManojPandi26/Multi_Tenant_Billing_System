@@ -9,6 +9,7 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.shared.multitenancy.TenantContext;
+import com.mtbs.shared.util.SecurityUtils;
 import com.mtbs.tenant.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -95,16 +96,23 @@ public class AuthService {
 
     // ── Logout ────────────────────────────────────────────────────────────────
 
-    public void logout(LogoutRequest request, Long tenantId) {
+    public void logout(LogoutRequest request, Long tenantId, String ipAddress, String userAgent) {
         log.info("Logout for tenantId={}", tenantId);
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
+        Long userId = SecurityUtils.getCurrentUserId();
+        String userEmail = SecurityUtils.getCurrentUserEmail();
+        String userName = SecurityUtils.getCurrentUserName();
+        String role = SecurityUtils.getCurrentRole();
+
         TenantContext.setTenantId(tenant.getId());
         TenantContext.setCurrentSchema(tenant.getSchemaName());
         try {
-            tenantAuthService.logoutInTenantSchema(request.getRefreshToken());
+            tenantAuthService.logoutInTenantSchema(
+                    request.getRefreshToken(), userId, userEmail, userName, role, 
+                    tenant, ipAddress, userAgent);
         } finally {
             TenantContext.clear();
         }

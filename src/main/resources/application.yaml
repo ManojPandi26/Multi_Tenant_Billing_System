@@ -91,6 +91,11 @@ app:
     lock-duration-seconds: 30      # How long to hold lock during processing
     max-retries: 5                 # Max publish attempts before FAILED
     cleanup-cron: "0 0 3 * * ?"    # Daily at 3 AM UTC
+  audit:
+    enabled: true                  # Enable audit logging
+    retention-days: 365           # Keep audit logs for 1 year
+    cleanup-cron: "0 0 2 * * ?"    # Daily at 2 AM UTC
+    async-logging: true           # Log asynchronously for performance
 
 
 server:

@@ -140,7 +140,9 @@ public class AuthController {
         }
 
         if (tokenToRevoke != null) {
-            authService.logout(new LogoutRequest(tokenToRevoke), SecurityUtils.getCurrentTenantId());
+            String ip = getClientIp(httpRequest);
+            String userAgent = httpRequest.getHeader("User-Agent");
+            authService.logout(new LogoutRequest(tokenToRevoke), SecurityUtils.getCurrentTenantId(), ip, userAgent);
         }
 
         cookieUtils.clearAuthCookies(response);

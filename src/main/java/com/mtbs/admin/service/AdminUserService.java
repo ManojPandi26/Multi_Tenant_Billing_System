@@ -1,10 +1,15 @@
 package com.mtbs.admin.service;
 
 import com.mtbs.tenant.entity.Tenant;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantRepository;
 import com.mtbs.auth.service.UserService;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
+import com.mtbs.shared.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +32,7 @@ public class AdminUserService {
 
     private final TenantRepository tenantRepository;
     private final UserService userService;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     /**
      * Soft-deletes a user from a specific tenant schema.
@@ -42,6 +48,22 @@ public class AdminUserService {
         TenantContext.setCurrentSchema(tenant.getSchemaName());
         try {
             userService.deleteUser(userId);
+
+            outboxEventPublisher.save(AuditLogEvent.builder()
+                    .action(AuditAction.DELETE)
+                    .entityType(AuditEntityType.USER)
+                    .entityId(userId)
+                    .whoUserId(SecurityUtils.getCurrentUserId())
+                    .whoUserEmail(SecurityUtils.getCurrentUserEmail())
+                    .whoUserName(SecurityUtils.getCurrentUserName())
+                    .whoRole(SecurityUtils.getCurrentRole())
+                    .contextTenantId(tenant.getId())
+                    .contextTenantName(tenant.getName())
+                    .description("Admin removed user with ID: " + userId + " from tenant: " + tenant.getName())
+                    .module("ADMIN_USER_MANAGEMENT")
+                    .severity("WARN")
+                    .build(), "User", userId);
+
             log.info("User removed — userId={}, tenantId={}", userId, tenantId);
         } finally {
             TenantContext.clear();
