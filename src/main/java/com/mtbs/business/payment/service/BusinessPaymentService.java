@@ -10,7 +10,7 @@ import com.mtbs.business.customer.entity.Customer;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.business.report.event.BusinessEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.business.payment.repository.BusinessPaymentRepository;
 import com.mtbs.billing.gateway.PaymentGatewayPort;
@@ -49,7 +49,7 @@ public class BusinessPaymentService {
     private final BusinessInvoiceService invoiceService;
     private final CustomerService customerService;
     private final TenantService tenantService;
-    private final BusinessEventPublisher businessEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
     private final PaymentGatewayPort paymentGateway;
 
     // ── Record payment ────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ public class BusinessPaymentService {
             extra.put("paidAt",            payment.getPaidAt().toString());
             extra.put("outstandingAmount", outstanding.toPlainString());
 
-            businessEventPublisher.publish(BillingEvent.builder()
+            outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(NotificationEvent.BUSINESS_PAYMENT_RECORDED)
                     .tenantId(tenantId)
                     .tenantName(tenantName)
@@ -169,7 +169,7 @@ public class BusinessPaymentService {
                     .recipientName(customer.getName())
                     .invoiceNumber(invoice.getInvoiceNumber())
                     .invoiceAmount(invoice.getTotalAmount())
-                    .build());
+                    .build(), "BusinessInvoice", invoice.getId());
 
         } catch (Exception e) {
             log.warn("Failed to fire BUSINESS_PAYMENT_RECORDED for invoiceId={}: {}",

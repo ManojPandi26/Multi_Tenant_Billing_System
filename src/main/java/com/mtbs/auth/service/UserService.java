@@ -3,7 +3,7 @@ package com.mtbs.auth.service;
 import com.mtbs.auth.dto.user.*;
 import com.mtbs.auth.entity.User;
 import com.mtbs.shared.enums.notification.NotificationEvent;
-import com.mtbs.auth.event.AuthEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.tenant.service.PlanLimitService;
@@ -35,7 +35,7 @@ public class UserService {
     private final UserScopedService userScopedService;
     private final PasswordEncoder passwordEncoder;
     private final TenantService tenantService;
-    private final AuthEventPublisher authEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
     private final PlanLimitService planLimitService;
 
     public Page<UserResponse> getAllUsers(Pageable pageable) {
@@ -93,13 +93,13 @@ public class UserService {
         log.info("Delegating profile update for user: {}", currentUserId);
         User user = userScopedService.updateProfile(currentUserId, request, passwordEncoder);
         // 3. Fire
-        authEventPublisher.publish(AuthNotificationEvent.builder()
+        outboxEventPublisher.save(AuthNotificationEvent.builder()
                 .eventType(NotificationEvent.PASSWORD_CHANGED)
                 .recipientEmail(user.getEmail())
                 .recipientName(user.getName())
                 .tenantName(tenantService.fetchTenantName())
                 .eventTime(Instant.now())
-                .build());
+                .build(), "User", user.getId());
         return mapToResponse(user);
     }
 

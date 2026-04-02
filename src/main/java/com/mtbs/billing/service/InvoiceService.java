@@ -11,7 +11,7 @@ import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.shared.enums.billing.LineItemType;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.billing.event.BillingEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.InvoiceLineItemRepository;
@@ -55,7 +55,7 @@ public class InvoiceService {
     private final InvoiceLineItemRepository lineItemRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanService planService;
-    private final BillingEventPublisher billingEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     // ── Internal — called by BillingCycleJob ──────────────────────────────────
 
@@ -235,7 +235,7 @@ public class InvoiceService {
                 builder.planName(plan.getName());
             }
 
-            billingEventPublisher.publish(builder.build());
+            outboxEventPublisher.save(builder.build(), "Invoice", invoice.getId());
         } catch (Exception e) {
             log.warn("Failed to fire {} event for invoiceId={}: {}", eventType, invoice.getId(), e.getMessage());
         }

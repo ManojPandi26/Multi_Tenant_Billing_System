@@ -14,7 +14,7 @@ import com.mtbs.business.product.entity.Product;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.business.report.event.BusinessEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.business.invoice.repository.BusinessInvoiceItemRepository;
 import com.mtbs.business.invoice.repository.BusinessInvoiceRepository;
@@ -35,6 +35,7 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -77,7 +78,7 @@ public class BusinessInvoiceService {
     private final CustomerService customerService;
     private final ProductService productService;
     private final TenantService tenantService;
-    private final BusinessEventPublisher businessEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     private final BusinessInvoicePdfService pdfService;
     private final PaymentGatewayPort paymentGateway;
@@ -473,12 +474,14 @@ public class BusinessInvoiceService {
                 extra.put("paymentLinkUrl", invoice.getRazorpayPaymentLinkId());
             }
 
-            // PDF bytes — read by NotificationService, not rendered in template
+            // PDF bytes — encode to Base64 for serialization
+            String pdfBase64 = null;
             if (pdfBytes != null && pdfBytes.length > 0) {
-                extra.put("pdfAttachment", pdfBytes);
+                pdfBase64 = Base64.getEncoder().encodeToString(pdfBytes);
+                extra.put("pdfAttachment", pdfBase64);
             }
 
-            businessEventPublisher.publish(BillingEvent.builder()
+            outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(NotificationEvent.BUSINESS_INVOICE_SENT)
                     .tenantId(SecurityUtils.getCurrentTenantId())
                     .tenantName(tenantName)
@@ -490,7 +493,8 @@ public class BusinessInvoiceService {
                     .currency(invoice.getCurrency() != null ? invoice.getCurrency() : "INR")
                     .invoiceDueDate(invoice.getDueDate())
                     .extra(extra)
-                    .build());
+                    .pdfAttachmentBase64(pdfBase64)
+                    .build(), "BusinessInvoice", invoice.getId());
 
         } catch (Exception e) {
             log.warn("Failed to fire BUSINESS_INVOICE_SENT for invoiceId={}: {}",

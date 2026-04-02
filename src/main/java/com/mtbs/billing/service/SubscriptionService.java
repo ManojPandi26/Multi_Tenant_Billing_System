@@ -9,8 +9,7 @@ import com.mtbs.billing.dto.subscription.UpgradeRequest;
 import com.mtbs.billing.dto.OrderResponse;
 import com.mtbs.billing.dto.InvoiceResponse;
 import com.mtbs.billing.entity.Subscription;
-import com.mtbs.billing.event.BillingEventPublisher;
-import com.mtbs.billing.event.SubscriptionEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.enums.billing.BillingCycle;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
@@ -82,8 +81,7 @@ public class SubscriptionService {
     private final InvoiceService invoiceService;
     private final PaymentService paymentService;
     private final ProrationService prorationService;
-    private final BillingEventPublisher billingEventPublisher;
-    private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     @Value("${razorpay.key-id}")
     private String razorpayKeyId;
@@ -763,7 +761,7 @@ public class SubscriptionService {
 
     private void fireSimpleEvent(NotificationEvent type, Plan plan, Subscription sub) {
         try {
-            subscriptionEventPublisher.publish(BillingEvent.builder()
+            outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(type)
                     .tenantName(tenantService.fetchTenantName())
                     .planName(plan.getDisplayName())
@@ -771,7 +769,7 @@ public class SubscriptionService {
                     .billingCycle(sub.getBillingCycle() != null ? sub.getBillingCycle().name() : null)
                     .trialEndsAt(sub.getTrialEnd())
                     .subscriptionEndsAt(sub.getCurrentPeriodEnd())
-                    .build());
+                    .build(), "Subscription", sub.getId());
         } catch (Exception e) {
             log.warn("Failed to fire {} event: {}", type, e.getMessage());
         }
@@ -780,7 +778,7 @@ public class SubscriptionService {
     private void fireUpgradeEvent(NotificationEvent type, Plan oldPlan, Plan newPlan,
                                   Subscription sub, Long invoiceId) {
         try {
-            subscriptionEventPublisher.publish(BillingEvent.builder()
+            outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(type)
                     .tenantName(tenantService.fetchTenantName())
                     .planName(newPlan.getDisplayName())
@@ -788,7 +786,7 @@ public class SubscriptionService {
                     .planPrice(newPlan.getPriceMonthly())
                     .billingCycle(sub.getBillingCycle().name())
                     .nextBillingDate(sub.getCurrentPeriodEnd())
-                    .build());
+                    .build(), "Subscription", sub.getId());
         } catch (Exception e) {
             log.warn("Failed to fire {} event: {}", type, e.getMessage());
         }

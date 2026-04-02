@@ -3,7 +3,7 @@ package com.mtbs.auth.service;
 import com.mtbs.auth.entity.User;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.notification.NotificationEvent;
-import com.mtbs.auth.event.AuthEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.exception.TenantException;
@@ -55,7 +55,7 @@ public class PasswordResetService {
     private final UserRepository userRepository;
     private final StringRedisTemplate redisTemplate;
     private final PasswordEncoder passwordEncoder;
-    private final AuthEventPublisher authEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     @Value("${app.password-reset.token-ttl-minutes}")
     private long tokenTtlMinutes;
@@ -170,7 +170,7 @@ public class PasswordResetService {
         userRepository.save(user);
 
         // Fire PASSWORD_CHANGED notification
-        authEventPublisher.publish(AuthNotificationEvent.builder()
+        outboxEventPublisher.save(AuthNotificationEvent.builder()
                 .eventType(NotificationEvent.PASSWORD_CHANGED)
                 .recipientEmail(user.getEmail())
                 .recipientName(user.getName())
@@ -178,19 +178,19 @@ public class PasswordResetService {
                 .deviceInfo(deviceInfo)
                 .tenantName(tenant.getName())
                 .eventTime(Instant.now())
-                .build());
+                .build(), "User", user.getId());
     }
 
     private void firePasswordResetEmail(User user, Tenant tenant, String resetLink) {
         try {
-            authEventPublisher.publish(AuthNotificationEvent.builder()
+            outboxEventPublisher.save(AuthNotificationEvent.builder()
                     .eventType(NotificationEvent.PASSWORD_RESET_REQUESTED)
                     .recipientEmail(user.getEmail())
                     .recipientName(user.getName())
                     .tenantName(tenant.getName())
                     .resetLink(resetLink)
                     .eventTime(Instant.now())
-                    .build());
+                    .build(), "User", user.getId());
         } catch (Exception e) {
             // Notification failure must never prevent the token from being issued
             log.warn("Failed to send password reset email for userId={}: {}", user.getId(), e.getMessage());

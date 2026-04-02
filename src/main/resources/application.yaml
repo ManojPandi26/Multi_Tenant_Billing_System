@@ -85,6 +85,12 @@ app:
     rate-limit:
       max-attempts: 5       # failed logins before lockout
       window-minutes: 15
+  outbox:
+    poll-interval-ms: 5000          # How often processor checks for new events
+    batch-size: 100                 # Max events per poll cycle
+    lock-duration-seconds: 30      # How long to hold lock during processing
+    max-retries: 5                 # Max publish attempts before FAILED
+    cleanup-cron: "0 0 3 * * ?"    # Daily at 3 AM UTC
 
 
 server:

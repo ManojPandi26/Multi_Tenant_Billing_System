@@ -1,6 +1,7 @@
 package com.mtbs.shared.event.auth;
 
 import com.mtbs.shared.enums.notification.NotificationEvent;
+import com.mtbs.shared.event.DomainEvent;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -14,9 +15,15 @@ import java.time.Instant;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AuthNotificationEvent {
+public class AuthNotificationEvent implements DomainEvent {
 
     private NotificationEvent eventType;
+
+    @Override
+    public String getEventType() {
+        return eventType != null ? eventType.name() : null;
+    }
+
     private String recipientEmail;
     private String recipientName;
     private String tenantName;
@@ -24,6 +31,5 @@ public class AuthNotificationEvent {
     private String deviceInfo;
     private Instant eventTime;
 
-    // For password reset
     private String resetLink;
 }

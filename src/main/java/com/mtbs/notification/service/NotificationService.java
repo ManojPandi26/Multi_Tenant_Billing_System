@@ -20,6 +20,8 @@ import org.thymeleaf.context.Context;
 import java.io.UnsupportedEncodingException;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
+import java.util.List;
 import java.util.Locale;
 
 @Service
@@ -56,13 +58,8 @@ public class NotificationService {
             Context ctx = buildBillingContext(event);
             String htmlContent = renderTemplate("emails/" + def.getTemplateName(), ctx);
 
-            // Extract PDF attachment from extra map if present
-            byte[] pdfBytes = null;
-            if (event.getExtra() != null && event.getExtra().get("pdfAttachment") instanceof byte[]) {
-                pdfBytes = (byte[]) event.getExtra().get("pdfAttachment");
-            }
+            byte[] pdfBytes = extractPdfBytes(event);
 
-            // Extract filename from invoiceNumber in extra map or direct field
             String invoiceNumber = event.getExtra() != null && event.getExtra().get("invoiceNumber") != null
                     ? String.valueOf(event.getExtra().get("invoiceNumber"))
                     : event.getInvoiceNumber();
@@ -75,6 +72,36 @@ public class NotificationService {
             log.error("Failed to send billing notification: type={}, recipient={}, error={}",
                     event.getEventType(), event.getRecipientEmail(), ex.getMessage(), ex);
         }
+    }
+
+    private byte[] extractPdfBytes(BillingEvent event) {
+        try {
+            if (event.getPdfAttachmentBase64() != null && !event.getPdfAttachmentBase64().isEmpty()) {
+                return Base64.getDecoder().decode(event.getPdfAttachmentBase64());
+            }
+
+            if (event.getExtra() != null && event.getExtra().containsKey("pdfAttachment")) {
+                Object pdfData = event.getExtra().get("pdfAttachment");
+                if (pdfData instanceof String) {
+                    return Base64.getDecoder().decode((String) pdfData);
+                } else if (pdfData instanceof byte[]) {
+                    return (byte[]) pdfData;
+                } else if (pdfData instanceof List) {
+                    List<?> list = (List<?>) pdfData;
+                    byte[] bytes = new byte[list.size()];
+                    for (int i = 0; i < list.size(); i++) {
+                        Object item = list.get(i);
+                        if (item instanceof Number) {
+                            bytes[i] = ((Number) item).byteValue();
+                        }
+                    }
+                    return bytes;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to extract PDF attachment: {}", e.getMessage());
+        }
+        return null;
     }
 
     // ─── Auth Events ───────────────────────────────────────────────────────

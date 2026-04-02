@@ -98,4 +98,13 @@ public class EmailTemplateConfig {
         }
         return def;
     }
+
+    public TemplateDefinition getTemplate(String eventType) {
+        try {
+            NotificationEvent event = NotificationEvent.valueOf(eventType);
+            return getTemplate(event);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("No email template configured for event: " + eventType);
+        }
+    }
 }

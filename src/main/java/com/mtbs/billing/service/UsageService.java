@@ -8,7 +8,7 @@ import com.mtbs.billing.entity.UsageSummary;
 import com.mtbs.shared.enums.billing.UsageMetric;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.billing.event.BillingEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.billing.repository.UsageRecordRepository;
@@ -36,7 +36,7 @@ public class UsageService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
     private final PlanService planService;
-    private final BillingEventPublisher billingEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     // ── Record usage — called by @TrackUsage AOP ──────────────────────────────
 
@@ -241,13 +241,13 @@ public class UsageService {
     private void fireUsageEvent(NotificationEvent eventType, UsageMetric metric,
                                 long current, long limit, int percent) {
         try {
-            billingEventPublisher.publish(BillingEvent.builder()
+            outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(eventType)
                     .metricName(metric.name())
                     .currentUsage(current)
                     .usageLimit(limit)
                     .usagePercent(percent)
-                    .build());
+                    .build(), "Usage", (String) null);
         } catch (Exception e) {
             log.warn("Failed to fire {} event for metric={}: {}", eventType, metric, e.getMessage());
         }

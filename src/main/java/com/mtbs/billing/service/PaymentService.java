@@ -7,12 +7,12 @@ import com.mtbs.billing.dto.VerifyPaymentRequest;
 import com.mtbs.billing.entity.Invoice;
 import com.mtbs.billing.entity.Payment;
 import com.mtbs.billing.event.PaymentCapturedEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.shared.enums.billing.PaymentStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.billing.event.BillingEventPublisher;
 import com.mtbs.shared.event.billing.PaymentCapturedEvent;
 import com.mtbs.shared.exception.PaymentException;
 import com.mtbs.shared.exception.ResourceException;
@@ -43,7 +43,7 @@ public class PaymentService {
     private final InvoiceService invoiceService;
     private final PaymentCapturedEventPublisher paymentCapturedEventPublisher;
     private final PaymentGatewayPort paymentGateway;
-    private final BillingEventPublisher billingEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
     private final SubscriptionRepository subscriptionRepository;
 
 
@@ -270,11 +270,11 @@ public class PaymentService {
 
     private void firePaymentEvent(NotificationEvent eventType, Payment payment) {
         try {
-            billingEventPublisher.publish(BillingEvent.builder()
+            outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(eventType)
                     .paymentId(payment.getRazorpayPaymentId())
                     .paymentAmount(payment.getAmount())
-                    .build());
+                    .build(), "Payment", payment.getId());
         } catch (Exception e) {
             log.warn("Failed to fire {} event for paymentId={}: {}", eventType, payment.getId(), e.getMessage());
         }

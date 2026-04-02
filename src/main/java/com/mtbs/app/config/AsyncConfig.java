@@ -5,6 +5,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.concurrent.Executor;
 
@@ -14,6 +16,9 @@ import java.util.concurrent.Executor;
  * Registers a {@link ThreadPoolTaskExecutor} wired with
  * {@link TenantAwareTaskDecorator} so all {@code @Async} methods automatically
  * inherit the TenantContext (tenantId + schemaName) from the calling thread.
+ *
+ * Also registers a {@link TransactionTemplate} for programmatic transaction
+ * management, used by OutboxEventProcessor to avoid AOP self-invocation issues.
  *
  * THREAD POOL SIZING (defaults — tune via application.yaml):
  *   core-pool-size:  5   — always-alive threads for steady-state load
@@ -48,10 +53,14 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
 
-        // KEY: propagates TenantContext from calling thread → worker thread
         executor.setTaskDecorator(new TenantAwareTaskDecorator());
 
         executor.initialize();
         return executor;
+    }
+
+    @Bean
+    public TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {
+        return new TransactionTemplate(transactionManager);
     }
 }

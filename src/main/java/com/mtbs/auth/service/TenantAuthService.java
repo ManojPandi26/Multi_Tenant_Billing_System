@@ -7,7 +7,7 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.auth.entity.User;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.notification.NotificationEvent;
-import com.mtbs.auth.event.AuthEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.exception.ResourceException;
@@ -44,7 +44,7 @@ public class TenantAuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
 
-    private final AuthEventPublisher authEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
 
     /**
@@ -133,7 +133,7 @@ public class TenantAuthService {
         RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
 
         // 2. Fire
-        authEventPublisher.publish(AuthNotificationEvent.builder()
+        outboxEventPublisher.save(AuthNotificationEvent.builder()
                 .eventType(NotificationEvent.USER_LOGIN)
                 .recipientEmail(user.getEmail())
                 .recipientName(user.getName())
@@ -141,7 +141,7 @@ public class TenantAuthService {
                 .ipAddress(ipAddress)
                 .deviceInfo(deviceInfo)
                 .eventTime(Instant.now())
-                .build());
+                .build(), "User", user.getId());
 
         return AuthResponse.builder()
                 .accessToken(accessToken)

@@ -8,7 +8,7 @@ import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.tenant.enums.KycStatus;
 import com.mtbs.shared.enums.plan.Plan;
-import com.mtbs.auth.event.AuthEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.multitenancy.TenantContext;
@@ -46,7 +46,7 @@ public class SignupService {
     private final TenantOnboardingRepository onboardingRepository;
     private final TenantFlywayMigrationService tenantFlywayMigrationService;
     private final TenantAuthService tenantScopedAuthService;
-    private final AuthEventPublisher authEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     public AuthResponse signup(SignupRequest request) {
         log.info("New signup request for email={}", request.getEmail());
@@ -129,13 +129,13 @@ public class SignupService {
      */
     private void fireWelcomeNotification(SignupRequest request, Tenant tenant) {
         try {
-            authEventPublisher.publish(AuthNotificationEvent.builder()
+            outboxEventPublisher.save(AuthNotificationEvent.builder()
                     .eventType(NotificationEvent.USER_REGISTERED)
                     .recipientEmail(request.getEmail())
                     .recipientName(request.getName())
                     .tenantName(tenant.getName())
                     .eventTime(Instant.now())
-                    .build());
+                    .build(), "Tenant", tenant.getId());
             log.debug("USER_REGISTERED notification fired for email={}", request.getEmail());
         } catch (Exception e) {
             log.warn("Failed to fire USER_REGISTERED notification for email={}: {}",

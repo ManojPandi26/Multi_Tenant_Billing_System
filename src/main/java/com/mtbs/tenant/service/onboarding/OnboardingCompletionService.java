@@ -7,7 +7,7 @@ import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.BillingCycle;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.billing.event.SubscriptionEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantOnboardingRepository;
@@ -43,7 +43,7 @@ public class OnboardingCompletionService {
     private final TenantRepository tenantRepository;
     private final TenantOnboardingRepository onboardingRepository;
     private final SubscriptionService subscriptionService;
-    private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     /**
      * Completes onboarding:
@@ -108,7 +108,7 @@ public class OnboardingCompletionService {
 
     private void fireOnboardingCompleteEvent(Tenant tenant, TenantOnboarding onboarding, Plan plan) {
         try {
-            subscriptionEventPublisher.publish(
+            outboxEventPublisher.save(
                     BillingEvent.builder()
                             .eventType(NotificationEvent.ONBOARDING_COMPLETED)
                             .recipientEmail(tenant.getOwnerEmail())
@@ -116,7 +116,9 @@ public class OnboardingCompletionService {
                             .tenantId(tenant.getId())
                             .tenantName(tenant.getName())
                             .planName(plan.getName())
-                            .build()
+                            .build(),
+                    "Tenant",
+                    tenant.getId()
             );
         } catch (Exception e) {
             // Notification failure must never roll back the completion

@@ -6,7 +6,7 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.billing.event.SubscriptionEventPublisher;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.PlanRepository;
 import com.mtbs.billing.repository.SubscriptionRepository;
@@ -45,7 +45,7 @@ public class TrialEndingSoonJob implements Job {
     private final TenantRepository tenantRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
-    private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     @Override
     public void execute(JobExecutionContext context) {
@@ -105,7 +105,7 @@ public class TrialEndingSoonJob implements Job {
 
             long daysLeft = ChronoUnit.DAYS.between(Instant.now(), sub.getTrialEnd());
 
-            subscriptionEventPublisher.publish(BillingEvent.builder()
+            outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(NotificationEvent.TRIAL_ENDING_SOON)
                     .tenantId(tenant.getId())
                     .tenantName(tenant.getName())
@@ -113,7 +113,7 @@ public class TrialEndingSoonJob implements Job {
                     .recipientName(tenant.getName())
                     .planName(planDisplayName)
                     .trialEndsAt(sub.getTrialEnd())
-                    .build());
+                    .build(), "Subscription", sub.getId());
 
             log.info("TRIAL_ENDING_SOON fired — tenantId={}, daysLeft={}, trialEnd={}",
                     tenant.getId(), daysLeft, sub.getTrialEnd());
