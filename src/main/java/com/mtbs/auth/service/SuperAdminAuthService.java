@@ -1,7 +1,11 @@
 package com.mtbs.auth.service;
 
+import com.mtbs.admin.repository.AuditLogRepository;
 import com.mtbs.auth.dto.auth.AuthResponse;
 import com.mtbs.auth.entity.PlatformAdmin;
+import com.mtbs.shared.entity.audit.AuditLog;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.auth.repository.PlatformAdminRepository;
 import com.mtbs.auth.security.JwtTokenProvider;
@@ -19,6 +23,7 @@ public class SuperAdminAuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate;
+    private final AuditLogRepository auditLogRepository;
 
     public AuthResponse login(String email, String password) {
         log.info("SUPER_ADMIN login attempt for: {}", email);
@@ -36,7 +41,6 @@ public class SuperAdminAuthService {
 
         String accessToken = jwtTokenProvider.generateSuperAdminToken(admin);
         
-        // Generate new refresh token and store in Redis
         String refreshToken = java.util.UUID.randomUUID().toString();
         String redisKey = "super_admin_refresh:" + refreshToken;
         stringRedisTemplate.opsForValue().set(
@@ -46,6 +50,21 @@ public class SuperAdminAuthService {
                 java.util.concurrent.TimeUnit.MILLISECONDS
         );
 
+        auditLogRepository.save(AuditLog.builder()
+                .whatAction(AuditAction.LOGIN)
+                .whereEntityType(AuditEntityType.USER)
+                .whereEntityId(admin.getId())
+                .whereEntityName(admin.getEmail())
+                .whoUserId(admin.getId())
+                .whoUserEmail(admin.getEmail())
+                .whoUserName(admin.getName())
+                .whoRole("SUPER_ADMIN")
+                .contextTenantName("PLATFORM")
+                .description("Super admin logged in")
+                .module("ADMIN_AUTH")
+                .severity("INFO")
+                .build());
+
         log.info("SUPER_ADMIN login successful for: {}", email);
 
         return AuthResponse.builder()
@@ -54,8 +73,8 @@ public class SuperAdminAuthService {
                 .email(admin.getEmail())
                 .role("SUPER_ADMIN")
                 .userId(admin.getId())
-                .tenantId(null) // no tenant
-                .schemaName(null) // no schema
+                .tenantId(null)
+                .schemaName(null)
                 .build();
     }
 
@@ -66,7 +85,7 @@ public class SuperAdminAuthService {
         String adminIdStr = stringRedisTemplate.opsForValue().get(redisKey);
         
         if (adminIdStr == null) {
-            throw AuthException.invalidCredentials(); // or a specific token exception
+            throw AuthException.invalidCredentials();
         }
         
         Long adminId = Long.parseLong(adminIdStr);
@@ -78,10 +97,8 @@ public class SuperAdminAuthService {
             throw AuthException.inactiveUser();
         }
         
-        // Revoke old token
         stringRedisTemplate.delete(redisKey);
         
-        // Generate new tokens
         String newAccessToken = jwtTokenProvider.generateSuperAdminToken(admin);
         String newRefreshToken = java.util.UUID.randomUUID().toString();
         String newRedisKey = "super_admin_refresh:" + newRefreshToken;

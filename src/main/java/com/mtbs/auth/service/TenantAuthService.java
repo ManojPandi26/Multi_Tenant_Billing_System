@@ -9,6 +9,9 @@ import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.auth.repository.RolePermissionRepository;
@@ -132,7 +135,6 @@ public class TenantAuthService {
 
         RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
 
-        // 2. Fire
         outboxEventPublisher.save(AuthNotificationEvent.builder()
                 .eventType(NotificationEvent.USER_LOGIN)
                 .recipientEmail(user.getEmail())
@@ -141,6 +143,24 @@ public class TenantAuthService {
                 .ipAddress(ipAddress)
                 .deviceInfo(deviceInfo)
                 .eventTime(Instant.now())
+                .build(), "User", user.getId());
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.LOGIN)
+                .entityType(AuditEntityType.USER)
+                .entityId(user.getId())
+                .entityName(user.getEmail())
+                .whoUserId(user.getId())
+                .whoUserEmail(user.getEmail())
+                .whoUserName(user.getName())
+                .whoRole(user.getRole().getName())
+                .contextTenantId(tenant.getId())
+                .contextTenantName(tenant.getName())
+                .contextIpAddress(ipAddress)
+                .contextUserAgent(deviceInfo)
+                .description("User logged in")
+                .module("AUTH")
+                .severity("INFO")
                 .build(), "User", user.getId());
 
         return AuthResponse.builder()
@@ -186,9 +206,29 @@ public class TenantAuthService {
     }
 
     @Transactional
-    public void logoutInTenantSchema(String refreshToken) {
+    public void logoutInTenantSchema(String refreshToken, Long userId, String userEmail, 
+                                     String userName, String role, Tenant tenant,
+                                     String ipAddress, String userAgent) {
         log.info("Logging out user in tenant schema...");
         refreshTokenService.revokeToken(refreshToken);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.LOGOUT)
+                .entityType(AuditEntityType.USER)
+                .entityId(userId)
+                .entityName(userEmail)
+                .whoUserId(userId)
+                .whoUserEmail(userEmail)
+                .whoUserName(userName)
+                .whoRole(role)
+                .contextTenantId(tenant.getId())
+                .contextTenantName(tenant.getName())
+                .contextIpAddress(ipAddress)
+                .contextUserAgent(userAgent)
+                .description("User logged out")
+                .module("AUTH")
+                .severity("INFO")
+                .build(), "User", userId);
     }
 
     @Transactional(readOnly = true)

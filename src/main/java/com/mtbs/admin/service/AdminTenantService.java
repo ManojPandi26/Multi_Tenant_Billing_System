@@ -9,9 +9,14 @@ import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.plan.Plan;
 import com.mtbs.shared.enums.auth.Status;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
+import com.mtbs.shared.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -21,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * Service for system administrators to manage all tenants globally.
@@ -35,6 +41,7 @@ public class AdminTenantService {
     private final TenantRepository tenantRepository;
     private final AdminTenantScopedService adminTenantScopedService;
     private final JdbcTemplate jdbcTemplate;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     @Transactional(readOnly = true)
     public Page<AdminTenantListResponse> getAllTenants(Status status, Plan planType, Pageable pageable) {
@@ -86,6 +93,22 @@ public class AdminTenantService {
         tenant.setStatus(request.getStatus());
         tenant = tenantRepository.save(tenant);
 
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.STATUS_CHANGE)
+                .entityType(AuditEntityType.TENANT)
+                .entityId(tenant.getId())
+                .entityName(tenant.getName())
+                .whoUserId(SecurityUtils.getCurrentUserId())
+                .whoUserEmail(SecurityUtils.getCurrentUserEmail())
+                .whoUserName(SecurityUtils.getCurrentUserName())
+                .whoRole(SecurityUtils.getCurrentRole())
+                .contextTenantId(tenant.getId())
+                .contextTenantName(tenant.getName())
+                .changesAfter(Map.of("status", request.getStatus().name()))
+                .description("Admin changed tenant status to: " + request.getStatus())
+                .module("ADMIN_TENANT_MANAGEMENT")
+                .build(), "Tenant", tenant.getId());
+
         return mapToTenantResponse(tenant);
     }
 
@@ -97,6 +120,22 @@ public class AdminTenantService {
 
         tenant.setPlanType(request.getPlanType());
         tenant = tenantRepository.save(tenant);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.UPDATE)
+                .entityType(AuditEntityType.TENANT)
+                .entityId(tenant.getId())
+                .entityName(tenant.getName())
+                .whoUserId(SecurityUtils.getCurrentUserId())
+                .whoUserEmail(SecurityUtils.getCurrentUserEmail())
+                .whoUserName(SecurityUtils.getCurrentUserName())
+                .whoRole(SecurityUtils.getCurrentRole())
+                .contextTenantId(tenant.getId())
+                .contextTenantName(tenant.getName())
+                .changesAfter(Map.of("planType", request.getPlanType().name()))
+                .description("Admin changed tenant plan to: " + request.getPlanType())
+                .module("ADMIN_TENANT_MANAGEMENT")
+                .build(), "Tenant", tenant.getId());
 
         return mapToTenantResponse(tenant);
     }
@@ -124,6 +163,22 @@ public class AdminTenantService {
         tenant.setDeleted(true);
         tenant.setDeletedAt(Instant.now());
         tenantRepository.save(tenant);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.DELETE)
+                .entityType(AuditEntityType.TENANT)
+                .entityId(tenant.getId())
+                .entityName(tenant.getName())
+                .whoUserId(SecurityUtils.getCurrentUserId())
+                .whoUserEmail(SecurityUtils.getCurrentUserEmail())
+                .whoUserName(SecurityUtils.getCurrentUserName())
+                .whoRole(SecurityUtils.getCurrentRole())
+                .contextTenantId(tenant.getId())
+                .contextTenantName(tenant.getName())
+                .description("Admin deleted tenant: " + tenant.getName())
+                .module("ADMIN_TENANT_MANAGEMENT")
+                .severity("WARN")
+                .build(), "Tenant", tenant.getId());
     }
 
     private AdminTenantListResponse mapToListResponse(Tenant tenant) {

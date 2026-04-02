@@ -10,6 +10,9 @@ import com.mtbs.tenant.enums.KycStatus;
 import com.mtbs.shared.enums.plan.Plan;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantOnboardingRepository;
@@ -21,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * Handles Phase 0 of the onboarding flow — account creation only.
@@ -102,7 +106,24 @@ public class SignupService {
                 .onboardingStep(0)
                 .ownerEmail(request.getEmail())
                 .build();
-        return tenantRepository.save(tenant);
+        Tenant savedTenant = tenantRepository.save(tenant);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.TENANT_CREATED)
+                .entityType(AuditEntityType.TENANT)
+                .entityId(savedTenant.getId())
+                .entityName(savedTenant.getName())
+                .whoUserEmail(request.getEmail())
+                .whoUserName(request.getName())
+                .whoRole("OWNER")
+                .contextTenantId(savedTenant.getId())
+                .contextTenantName(savedTenant.getName())
+                .changesAfter(Map.of("name", savedTenant.getName(), "planType", Plan.FREE.name(), "status", Status.PENDING_ONBOARDING.name()))
+                .description("New tenant signup: " + savedTenant.getName())
+                .module("TENANT_MANAGEMENT")
+                .build(), "Tenant", savedTenant.getId());
+
+        return savedTenant;
     }
 
     @Transactional
@@ -119,6 +140,18 @@ public class SignupService {
         tenantRepository.findById(tenantId).ifPresent(t -> {
             t.setStatus(Status.ONBOARDING_ABANDONED);
             tenantRepository.save(t);
+
+            outboxEventPublisher.save(AuditLogEvent.builder()
+                    .action(AuditAction.STATUS_CHANGE)
+                    .entityType(AuditEntityType.TENANT)
+                    .entityId(t.getId())
+                    .entityName(t.getName())
+                    .changesBefore(Map.of("status", Status.PENDING_ONBOARDING.name()))
+                    .changesAfter(Map.of("status", Status.ONBOARDING_ABANDONED.name()))
+                    .description("Tenant onboarding failed")
+                    .module("TENANT_MANAGEMENT")
+                    .severity("WARN")
+                    .build(), "Tenant", t.getId());
         });
     }
 

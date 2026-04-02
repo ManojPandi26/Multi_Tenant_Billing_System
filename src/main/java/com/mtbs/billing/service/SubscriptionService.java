@@ -16,6 +16,9 @@ import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
 import com.mtbs.shared.event.billing.PaymentCapturedEvent;
+import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.enums.audit.AuditAction;
+import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.exception.SubscriptionException;
 import com.mtbs.shared.multitenancy.TenantContext;
@@ -36,6 +39,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Manages the full subscription lifecycle for a tenant.
@@ -196,6 +200,19 @@ public class SubscriptionService {
 
         fireUpgradeEvent(NotificationEvent.PLAN_UPGRADED, oldPlan, newPlan,
                 subscription, invoiceId);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.SUBSCRIPTION_UPDATED)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(subscription.getId())
+                .whoUserId(TenantContext.getTenantId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("planId", oldPlan.getId(), "planName", oldPlan.getName()))
+                .changesAfter(Map.of("planId", newPlan.getId(), "planName", newPlan.getName()))
+                .description("Subscription upgraded from " + oldPlan.getName() + " to " + newPlan.getName())
+                .module("BILLING")
+                .build(), "Subscription", subscription.getId());
     }
 
     // ── Downgrade to FREE ─────────────────────────────────────────────────────
@@ -250,6 +267,20 @@ public class SubscriptionService {
         }
 
         fireSimpleEvent(NotificationEvent.PLAN_DOWNGRADED, freePlan, subscription);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.SUBSCRIPTION_UPDATED)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(subscription.getId())
+                .whoUserId(TenantContext.getTenantId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("planId", currentPlan.getId(), "planName", currentPlan.getName()))
+                .changesAfter(Map.of("planId", freePlan.getId(), "planName", "FREE"))
+                .description("Subscription downgraded from " + currentPlan.getName() + " to FREE")
+                .module("BILLING")
+                .build(), "Subscription", subscription.getId());
+
         return mapToResponse(subscriptionRepository.findById(subscription.getId())
                 .orElseThrow());
     }
@@ -340,6 +371,21 @@ public class SubscriptionService {
 
         Plan plan = planService.getPlanById(saved.getPlanId());
         fireSimpleEvent(NotificationEvent.SUBSCRIPTION_CANCELLED, plan, saved);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.CANCEL)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(saved.getId())
+                .whoUserId(TenantContext.getTenantId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", subscription.getStatus().name()))
+                .changesAfter(Map.of("status", saved.getStatus().name(), "atPeriodEnd", atPeriodEnd))
+                .description("Subscription cancelled (atPeriodEnd=" + atPeriodEnd + ")")
+                .module("BILLING")
+                .severity("WARN")
+                .build(), "Subscription", saved.getId());
+
         return mapToResponse(saved);
     }
 
@@ -364,6 +410,18 @@ public class SubscriptionService {
         Subscription saved = subscriptionRepository.save(subscription);
 
         log.info("Subscription reactivated — tenantId={}", TenantContext.getTenantId());
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.STATUS_CHANGE)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(saved.getId())
+                .whoUserId(TenantContext.getTenantId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .description("Subscription reactivated (cancel-at-period-end undone)")
+                .module("BILLING")
+                .build(), "Subscription", saved.getId());
+
         return mapToResponse(saved);
     }
 
@@ -395,6 +453,20 @@ public class SubscriptionService {
         log.info("Subscription activated from trial — plan={}, cycle={}", plan.getName(), cycle);
 
         fireSimpleEvent(NotificationEvent.SUBSCRIPTION_ACTIVATED, plan, saved);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.STATUS_CHANGE)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(saved.getId())
+                .whoUserId(TenantContext.getTenantId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", "TRIALING"))
+                .changesAfter(Map.of("status", "ACTIVE", "planId", plan.getId(), "planName", plan.getName()))
+                .description("Trial subscription activated to " + plan.getName())
+                .module("BILLING")
+                .build(), "Subscription", saved.getId());
+
         return mapToResponse(saved);
     }
 
@@ -410,6 +482,20 @@ public class SubscriptionService {
 
         Plan plan = planService.getPlanById(sub.getPlanId());
         fireSimpleEvent(NotificationEvent.SUBSCRIPTION_EXPIRED, plan, sub);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.STATUS_CHANGE)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(sub.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", sub.getStatus().name()))
+                .changesAfter(Map.of("status", SubscriptionStatus.EXPIRED.name()))
+                .description("Subscription expired")
+                .module("BILLING")
+                .severity("WARN")
+                .build(), "Subscription", sub.getId());
+
         log.info("Subscription expired: id={}", subscriptionId);
     }
 
@@ -420,6 +506,20 @@ public class SubscriptionService {
                 .orElseThrow(() -> ResourceException.notFound("Subscription", subscriptionId));
         sub.setStatus(SubscriptionStatus.PAST_DUE);
         subscriptionRepository.save(sub);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.STATUS_CHANGE)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(sub.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", sub.getStatus().name()))
+                .changesAfter(Map.of("status", SubscriptionStatus.PAST_DUE.name()))
+                .description("Subscription suspended for non-payment")
+                .module("BILLING")
+                .severity("WARN")
+                .build(), "Subscription", sub.getId());
+
         log.info("Subscription PAST_DUE for non-payment: id={}", subscriptionId);
     }
 
@@ -449,6 +549,18 @@ public class SubscriptionService {
         subscriptionRepository.save(sub);
 
         fireSimpleEvent(NotificationEvent.PLAN_DOWNGRADED, freePlan, sub);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.SUBSCRIPTION_UPDATED)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(sub.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesAfter(Map.of("planId", freePlan.getId(), "planName", "FREE"))
+                .description("Scheduled downgrade to FREE executed")
+                .module("BILLING")
+                .build(), "Subscription", sub.getId());
+
         log.info("Scheduled downgrade to FREE executed — subscriptionId={}", subscriptionId);
     }
 
@@ -468,6 +580,18 @@ public class SubscriptionService {
         sub.setBillingCycle(sub.getScheduledBillingCycle());
         sub.setScheduledBillingCycle(null);
         subscriptionRepository.save(sub);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.SUBSCRIPTION_UPDATED)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(sub.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesAfter(Map.of("billingCycle", sub.getBillingCycle().name()))
+                .description("Billing cycle changed to " + sub.getBillingCycle().name())
+                .module("BILLING")
+                .build(), "Subscription", sub.getId());
+
         log.info("Billing cycle changed to {} — subscriptionId={}",
                 sub.getBillingCycle(), subscriptionId);
     }
@@ -490,6 +614,19 @@ public class SubscriptionService {
 
         Plan plan = planService.getPlanById(sub.getPlanId());
         fireSimpleEvent(NotificationEvent.SUBSCRIPTION_CANCELLED, plan, sub);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.CANCEL)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(sub.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesAfter(Map.of("status", SubscriptionStatus.CANCELLED.name()))
+                .description("Scheduled subscription cancellation executed")
+                .module("BILLING")
+                .severity("WARN")
+                .build(), "Subscription", sub.getId());
+
         log.info("Scheduled cancellation executed — subscriptionId={}", subscriptionId);
     }
 
@@ -532,6 +669,19 @@ public class SubscriptionService {
         Subscription saved = subscriptionRepository.save(sub);
         log.info("Trial started — plan={}, days={}", plan.getName(), plan.getTrialDays());
         fireSimpleEvent(NotificationEvent.TRIAL_STARTED, plan, saved);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.SUBSCRIPTION_CREATED)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(saved.getId())
+                .whoUserId(TenantContext.getTenantId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesAfter(Map.of("planId", plan.getId(), "planName", plan.getName(), "status", saved.getStatus().name()))
+                .description("Trial subscription started: " + plan.getName())
+                .module("BILLING")
+                .build(), "Subscription", saved.getId());
+
         return mapToResponse(saved);
     }
 
@@ -559,7 +709,20 @@ public class SubscriptionService {
                 .currentPeriodEnd(now.plus(Duration.ofDays(365)))
                 .build();
 
-        return mapToResponse(subscriptionRepository.save(sub));
+        Subscription saved = subscriptionRepository.save(sub);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.SUBSCRIPTION_CREATED)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(saved.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesAfter(Map.of("planId", freePlan.getId(), "planName", "FREE", "status", SubscriptionStatus.ACTIVE.name()))
+                .description("Auto-subscribed to FREE plan")
+                .module("BILLING")
+                .build(), "Subscription", saved.getId());
+
+        return mapToResponse(saved);
     }
 
     // ── Public mapping (used by TenantBillingDashboardService) ───────────────
