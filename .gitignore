@@ -2,7 +2,11 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-
+logs/
+docs/
+*.log
+.env
+application-prod.yml
 ### STS ###
 .apt_generated
 .classpath
