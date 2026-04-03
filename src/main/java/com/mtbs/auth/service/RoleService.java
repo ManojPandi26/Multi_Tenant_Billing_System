@@ -126,9 +126,10 @@ public class RoleService {
         roleRepository.save(role);
     }
 
+    @Transactional(readOnly = true)
     public List<PermissionResponse> getPermissionsForRole(Long roleId) {
         log.info("Fetching permissions for role: {}", roleId);
-        return rolePermissionRepository.findByRoleId(roleId).stream()
+        return rolePermissionRepository.findByRoleIdWithPermissions(roleId).stream()
                 .map(rp -> mapPermissionToResponse(rp.getPermission()))
                 .collect(Collectors.toList());
     }
