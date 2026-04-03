@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/customers")
+@RequestMapping("/api/v1/customers")
 @RequiredArgsConstructor
 @Tag(name = "Customers", description = "Manage tenant customers — the people and businesses you bill")
 @SecurityRequirement(name = "bearerAuth")

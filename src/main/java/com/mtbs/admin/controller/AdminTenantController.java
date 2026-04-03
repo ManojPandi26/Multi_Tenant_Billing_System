@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/admin/tenants")
+@RequestMapping("/api/v1/admin/tenants")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('SUPER_ADMIN')")
 @Tag(name = "Admin — Tenants", description = "Platform admin operations on all tenants")

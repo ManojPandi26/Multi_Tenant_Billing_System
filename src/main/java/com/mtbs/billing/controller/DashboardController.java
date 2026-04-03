@@ -13,7 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/dashboard")
+@RequestMapping("/api/v1/dashboard")
 @RequiredArgsConstructor
 @Tag(name = "Dashboard", description = "Billing dashboard endpoints")
 public class DashboardController {

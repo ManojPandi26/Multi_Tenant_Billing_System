@@ -24,7 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/usage")
+@RequestMapping("/api/v1/usage")
 @RequiredArgsConstructor
 @Tag(name = "Usage", description = "Usage tracking and plan limit enforcement")
 @SecurityRequirement(name = "bearerAuth")

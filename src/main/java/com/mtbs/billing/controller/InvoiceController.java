@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/invoices")
+@RequestMapping("/api/v1/invoices")
 @RequiredArgsConstructor
 @Tag(name = "Invoices", description = "Invoice listing, detail, void, and PDF download")
 @SecurityRequirement(name = "bearerAuth")

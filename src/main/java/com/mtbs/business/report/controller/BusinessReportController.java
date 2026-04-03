@@ -24,7 +24,7 @@ import java.time.Year;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/reports")
+@RequestMapping("/api/v1/reports")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('BILLING_MANAGE')")
 @Tag(name = "Business Reports", description = "Revenue, outstanding, and monthly summary reports")

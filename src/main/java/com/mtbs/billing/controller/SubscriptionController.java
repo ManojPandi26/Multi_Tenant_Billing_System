@@ -60,7 +60,7 @@ import org.springframework.web.bind.annotation.RestController;
  *          → ANNUAL→MONTHLY: no payment, returns SubscriptionResponse (scheduled).
  */
 @RestController
-@RequestMapping("/api/subscriptions")
+@RequestMapping("/api/v1/subscriptions")
 @RequiredArgsConstructor
 @Tag(
         name = "Subscriptions",
