@@ -4,6 +4,7 @@ import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.tenant.dto.onboarding.OnboardingStatusResponse;
 import com.mtbs.tenant.dto.onboarding.OnboardingStep1Request;
 import com.mtbs.tenant.dto.onboarding.OnboardingStep2Request;
+import com.mtbs.tenant.dto.onboarding.OnboardingStep3PaymentResponse;
 import com.mtbs.tenant.dto.onboarding.OnboardingStep3Request;
 import com.mtbs.tenant.dto.onboarding.OnboardingStepResponse;
 import com.mtbs.tenant.service.onboarding.OnboardingService;
@@ -78,15 +79,21 @@ public class OnboardingController {
     @PutMapping("/step/3")
     @Operation(
         summary = "Save step 3 — plan and billing",
-        description = "Selects plan, billing cycle, and optional payment method. " +
-                      "On success, creates the subscription in the tenant schema, " +
-                      "flips tenant status to ACTIVE, and fires the welcome notification. " +
+        description = "Selects plan and billing cycle. " +
+                      "For FREE plan: completes onboarding immediately. " +
+                      "For PAID plans (PRO/ENTERPRISE): creates Razorpay order and returns payment URL. " +
+                      "Payment webhook completes onboarding on success. " +
                       "Requires step 2 (KYC submitted) to be done first."
     )
-    public ResponseEntity<ApiResponse<OnboardingStepResponse>> saveStep3(
+    public ResponseEntity<ApiResponse<OnboardingStep3PaymentResponse>> saveStep3(
             @Valid @RequestBody OnboardingStep3Request request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
-        OnboardingStepResponse response = onboardingService.saveStep3(tenantId, request);
-        return ResponseEntity.ok(ApiResponse.success(response, "Onboarding complete"));
+        OnboardingStep3PaymentResponse response = onboardingService.saveStep3(tenantId, request);
+        
+        String message = response.isPaymentRequired() 
+                ? "Proceed to payment to complete onboarding" 
+                : "Onboarding complete. Welcome!";
+        
+        return ResponseEntity.ok(ApiResponse.success(response, message));
     }
 }

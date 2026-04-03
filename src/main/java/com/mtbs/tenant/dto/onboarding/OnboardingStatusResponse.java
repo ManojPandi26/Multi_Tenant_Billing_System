@@ -1,6 +1,7 @@
 package com.mtbs.tenant.dto.onboarding;
 
 import com.mtbs.tenant.enums.KycStatus;
+import com.mtbs.tenant.enums.OnboardingPaymentStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -66,5 +67,10 @@ public class OnboardingStatusResponse {
         private String planName;
         private String billingCycle;
         private Instant completedAt;
+        
+        // Payment-related fields (for paid plans)
+        private OnboardingPaymentStatus paymentStatus;
+        private String razorpayOrderId;
+        private Long amountPaise;
     }
 }

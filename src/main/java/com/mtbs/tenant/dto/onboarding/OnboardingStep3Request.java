@@ -27,4 +27,9 @@ public class OnboardingStep3Request {
      * Value is a Razorpay payment method token or card token.
      */
     private String paymentMethodToken;
+
+    /**
+     * Optional payment method ID for saved cards (future use).
+     */
+    private String paymentMethodId;
 }

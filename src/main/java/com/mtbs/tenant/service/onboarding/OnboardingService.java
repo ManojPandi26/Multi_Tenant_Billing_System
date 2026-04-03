@@ -3,13 +3,16 @@ package com.mtbs.tenant.service.onboarding;
 import com.mtbs.tenant.dto.onboarding.OnboardingStatusResponse;
 import com.mtbs.tenant.dto.onboarding.OnboardingStep1Request;
 import com.mtbs.tenant.dto.onboarding.OnboardingStep2Request;
+import com.mtbs.tenant.dto.onboarding.OnboardingStep3PaymentResponse;
 import com.mtbs.tenant.dto.onboarding.OnboardingStep3Request;
 import com.mtbs.tenant.dto.onboarding.OnboardingStepResponse;
 import com.mtbs.tenant.entity.TenantOnboarding;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
+import com.mtbs.shared.enums.billing.BillingCycle;
 import com.mtbs.tenant.enums.KycStatus;
+import com.mtbs.tenant.enums.OnboardingPaymentStatus;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.tenant.repository.PlanRepository;
@@ -19,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -91,11 +95,22 @@ public class OnboardingService {
 
     // ── Step 3 ────────────────────────────────────────────────────────────────
 
-    public OnboardingStepResponse saveStep3(Long tenantId, OnboardingStep3Request request) {
-        log.info("Saving onboarding step 3 (plan) for tenantId={}", tenantId);
+    public OnboardingStep3PaymentResponse saveStep3(Long tenantId, OnboardingStep3Request request) {
+        log.info("Saving onboarding step 3 (plan) for tenantId={}, planId={}", tenantId, request.getPlanId());
 
         requireOnboardingTenant(tenantId);
         TenantOnboarding onboarding = requireOnboardingRecord(tenantId);
+
+        if (onboarding.getCompletedAt() != null) {
+            log.warn("Onboarding already completed for tenantId={}", tenantId);
+            return OnboardingStep3PaymentResponse.builder()
+                    .paymentRequired(false)
+                    .tenantId(tenantId)
+                    .onboardingComplete(true)
+                    .message("Onboarding already completed")
+                    .currentStep(0)
+                    .build();
+        }
 
         if (onboarding.getKycStatus() == KycStatus.PENDING) {
             throw TenantException.stepOutOfOrder(2, 3);
@@ -104,16 +119,75 @@ public class OnboardingService {
         Plan plan = planRepository.findById(request.getPlanId())
                 .orElseThrow(() -> ResourceException.notFound("Plan", request.getPlanId()));
 
-        onboardingScopedService.persistStep3(onboarding, request);
+        if (onboarding.getSelectedPlanId() != null && onboarding.getPaymentStatus() == OnboardingPaymentStatus.PAID) {
+            log.warn("Payment already completed for tenantId={}", tenantId);
+            return OnboardingStep3PaymentResponse.builder()
+                    .paymentRequired(false)
+                    .tenantId(tenantId)
+                    .planId(plan.getId())
+                    .planName(plan.getName())
+                    .onboardingComplete(true)
+                    .message("Onboarding already completed")
+                    .currentStep(0)
+                    .build();
+        }
 
-        // Trigger completion — provisions subscription in tenant schema
+        boolean isPaidPlan = !isFreePlan(plan);
+
+        if (isPaidPlan) {
+            return handlePaidPlanSelection(tenantId, onboarding, plan, request);
+        } else {
+            return handleFreePlanSelection(tenantId, onboarding, plan, request);
+        }
+    }
+
+    private boolean isFreePlan(Plan plan) {
+        return "FREE".equalsIgnoreCase(plan.getName());
+    }
+
+    private OnboardingStep3PaymentResponse handleFreePlanSelection(
+            Long tenantId, TenantOnboarding onboarding, Plan plan, OnboardingStep3Request request) {
+        
+        onboardingScopedService.persistStep3(onboarding, request);
+        
         onboardingCompletionService.completeOnboarding(tenantId, plan, request.getBillingCycle());
 
-        return OnboardingStepResponse.builder()
-                .stepCompleted(3)
-                .nextStep(0)
+        return OnboardingStep3PaymentResponse.builder()
+                .paymentRequired(false)
+                .tenantId(tenantId)
+                .planId(plan.getId())
+                .planName(plan.getName())
+                .billingCycle(request.getBillingCycle())
                 .onboardingComplete(true)
                 .message("Onboarding complete. Welcome!")
+                .currentStep(0)
+                .build();
+    }
+
+    private OnboardingStep3PaymentResponse handlePaidPlanSelection(
+            Long tenantId, TenantOnboarding onboarding, Plan plan, OnboardingStep3Request request) {
+        
+        onboardingScopedService.persistStep3(onboarding, request);
+
+        onboardingCompletionService.completeOnboarding(tenantId, plan, request.getBillingCycle());
+
+        int trialDays = plan.getTrialDays() != null ? plan.getTrialDays() : 0;
+        
+        log.info("Onboarding completed with trial for tenantId={}, plan={}, trialDays={}", 
+                tenantId, plan.getName(), trialDays);
+
+        return OnboardingStep3PaymentResponse.builder()
+                .paymentRequired(false)
+                .tenantId(tenantId)
+                .planId(plan.getId())
+                .planName(plan.getName())
+                .billingCycle(request.getBillingCycle())
+                .trialDays(trialDays)
+                .onboardingComplete(true)
+                .message(trialDays > 0 
+                        ? "Onboarding complete! You have " + trialDays + " days free trial."
+                        : "Onboarding complete!")
+                .currentStep(0)
                 .build();
     }
 
@@ -154,14 +228,25 @@ public class OnboardingService {
 
         OnboardingStatusResponse.Step3Summary step3 = null;
         if (onboarding.getSelectedPlanId() != null) {
-            String planName = planRepository.findById(onboarding.getSelectedPlanId())
-                    .map(Plan::getName).orElse("UNKNOWN");
+            Plan plan = planRepository.findById(onboarding.getSelectedPlanId()).orElse(null);
+            String planName = plan != null ? plan.getName() : "UNKNOWN";
+            Long amountPaise = null;
+            
+            if (plan != null && onboarding.getSelectedBillingCycle() != null) {
+                amountPaise = onboarding.getSelectedBillingCycle() == BillingCycle.MONTHLY
+                        ? plan.getPriceMonthly().multiply(java.math.BigDecimal.valueOf(100)).longValue()
+                        : plan.getPriceAnnual().multiply(java.math.BigDecimal.valueOf(100)).longValue();
+            }
+            
             step3 = OnboardingStatusResponse.Step3Summary.builder()
                     .planId(onboarding.getSelectedPlanId())
                     .planName(planName)
                     .billingCycle(onboarding.getSelectedBillingCycle() != null
                             ? onboarding.getSelectedBillingCycle().name() : null)
                     .completedAt(onboarding.getCompletedAt())
+                    .paymentStatus(onboarding.getPaymentStatus())
+                    .razorpayOrderId(onboarding.getRazorpayOrderId())
+                    .amountPaise(amountPaise)
                     .build();
         }
 
@@ -197,7 +282,11 @@ public class OnboardingService {
         List<Integer> steps = new ArrayList<>();
         if (o.getCompanyName() != null)    steps.add(1);
         if (o.getBusinessType() != null)   steps.add(2);
-        if (o.getSelectedPlanId() != null) steps.add(3);
+        if (o.getSelectedPlanId() != null && o.getPaymentStatus() == OnboardingPaymentStatus.PAID) {
+            steps.add(3);
+        } else if (o.getSelectedPlanId() != null && o.getPaymentStatus() == null) {
+            steps.add(3);
+        }
         return steps;
     }
 }

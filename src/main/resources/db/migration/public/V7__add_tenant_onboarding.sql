@@ -29,8 +29,15 @@ CREATE TABLE IF NOT EXISTS tenant_onboarding (
     selected_plan_id        BIGINT,
     selected_billing_cycle  VARCHAR(50),
     razorpay_customer_id    VARCHAR(100),
+    -- Payment fields (for future payment flow)
+    razorpay_order_id       VARCHAR(255),
+    payment_status          VARCHAR(20),
+    payment_initiated_at   TIMESTAMPTZ,
+    -- Completion
     completed_at            TIMESTAMPTZ
     );
 
 CREATE INDEX IF NOT EXISTS idx_tenant_onboarding_tenant_id  ON tenant_onboarding (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_onboarding_kyc_status ON tenant_onboarding (kyc_status);
+CREATE INDEX IF NOT EXISTS idx_tenant_onboarding_razorpay_order_id ON tenant_onboarding (razorpay_order_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_onboarding_payment_status ON tenant_onboarding (payment_status);

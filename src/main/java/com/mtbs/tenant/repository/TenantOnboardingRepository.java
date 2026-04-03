@@ -14,4 +14,6 @@ public interface TenantOnboardingRepository extends JpaRepository<TenantOnboardi
     boolean existsBySlug(String slug);
 
     boolean existsBySlugAndTenantIdNot(String slug, Long tenantId);
+
+    Optional<TenantOnboarding> findByRazorpayOrderId(String razorpayOrderId);
 }

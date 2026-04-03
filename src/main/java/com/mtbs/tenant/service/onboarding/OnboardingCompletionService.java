@@ -76,7 +76,7 @@ public class OnboardingCompletionService {
         }
 
         // ── Activate tenant in public schema ──────────────────────────────────
-        activateTenant(tenant, onboarding);
+        activateTenant(tenant, onboarding, plan);
 
         // ── Fire notification ─────────────────────────────────────────────────
         fireOnboardingCompleteEvent(tenant, onboarding, plan);
@@ -97,9 +97,10 @@ public class OnboardingCompletionService {
 
 
     @Transactional
-    public void activateTenant(Tenant tenant, TenantOnboarding onboarding) {
+    public void activateTenant(Tenant tenant, TenantOnboarding onboarding, Plan plan) {
         tenant.setStatus(Status.ACTIVE);
         tenant.setOnboardingStep(3);
+        tenant.setPlanType(com.mtbs.shared.enums.plan.Plan.valueOf(plan.getName()));
         tenantRepository.save(tenant);
 
         onboarding.setCompletedAt(Instant.now());

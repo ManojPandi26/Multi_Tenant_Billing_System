@@ -4,6 +4,7 @@ import com.mtbs.shared.entity.AuditableEntity;
 import com.mtbs.shared.enums.billing.BillingCycle;
 import com.mtbs.tenant.enums.BusinessType;
 import com.mtbs.tenant.enums.KycStatus;
+import com.mtbs.tenant.enums.OnboardingPaymentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -98,6 +99,18 @@ public class TenantOnboarding extends AuditableEntity {
 
     @Column(name = "razorpay_customer_id", length = 255)
     private String razorpayCustomerId;
+
+    // ── Step 3 — Payment (for paid plans) ─────────────────────────────────────────
+
+    @Column(name = "razorpay_order_id", length = 255)
+    private String razorpayOrderId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", length = 20)
+    private OnboardingPaymentStatus paymentStatus;
+
+    @Column(name = "payment_initiated_at")
+    private Instant paymentInitiatedAt;
 
     // ── Completion ────────────────────────────────────────────────────────────
 

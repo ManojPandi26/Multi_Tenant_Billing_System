@@ -67,13 +67,13 @@ public class RazorpayWebhookController {
         try {
             switch (eventType) {
                 case "payment.captured" -> {
-                    String paymentId = event
+                    JSONObject paymentEntity = event
                             .getJSONObject("payload")
                             .getJSONObject("payment")
-                            .getJSONObject("entity")
-                            .getString("id");
+                            .getJSONObject("entity");
+                    String paymentId = paymentEntity.getString("id");
                     paymentService.handlePaymentSuccess(paymentId);
-                    log.info("Payment success handled: razorpayPaymentId={}", paymentId);
+                    log.info("Payment captured handled: razorpayPaymentId={}", paymentId);
                 }
                 case "payment.failed" -> {
                     JSONObject paymentEntity = event

@@ -108,20 +108,8 @@ public class SignupService {
                 .build();
         Tenant savedTenant = tenantRepository.save(tenant);
 
-        outboxEventPublisher.save(AuditLogEvent.builder()
-                .action(AuditAction.TENANT_CREATED)
-                .entityType(AuditEntityType.TENANT)
-                .entityId(savedTenant.getId())
-                .entityName(savedTenant.getName())
-                .whoUserEmail(request.getEmail())
-                .whoUserName(request.getName())
-                .whoRole("OWNER")
-                .contextTenantId(savedTenant.getId())
-                .contextTenantName(savedTenant.getName())
-                .changesAfter(Map.of("name", savedTenant.getName(), "planType", Plan.FREE.name(), "status", Status.PENDING_ONBOARDING.name()))
-                .description("New tenant signup: " + savedTenant.getName())
-                .module("TENANT_MANAGEMENT")
-                .build(), "Tenant", savedTenant.getId());
+        // Skip audit event during signup - schema not yet created
+        // Audit event can be fired after onboarding completes
 
         return savedTenant;
     }
