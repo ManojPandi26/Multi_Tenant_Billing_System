@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
  *  - All other events  → acknowledged but ignored (returns 200)
  */
 @RestController
-@RequestMapping("/api/v1/webhooks")
+@RequestMapping("/api/${api.version}/webhooks")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Webhooks", description = "Razorpay inbound webhook receiver")

@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/permissions")
+@RequestMapping("/api/${api.version}/permissions")
 @RequiredArgsConstructor
 @Tag(name = "Permission Management", description = "Endpoints for viewing and managing custom permissions across the platform")
 public class PermissionController {

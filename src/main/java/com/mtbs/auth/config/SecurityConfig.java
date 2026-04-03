@@ -4,6 +4,7 @@ import com.mtbs.app.filter.MdcSecurityEnrichmentFilter;
 import com.mtbs.auth.security.JwtAuthenticationEntryPoint;
 import com.mtbs.auth.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -29,20 +30,26 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private static final String[] PUBLIC_URLS = {
-            "/api/auth/**", // "/api/auth/signup" , "/api/auth/forgot-password", "/api/auth/reset-password"
-            "/api/admin/auth/login",
-            "/api/admin/auth/refresh",
-            "/api/health",
-            "/api/plans",
-            "/api/plans/{id}",
-            "/api/webhooks/**",
+    @Value("${api.version}")
+    private String apiVersion;
+
+    private String[] getPublicUrls() {
+        String version = apiVersion;
+        return new String[] {
+            "/api/" + version + "/auth/**",
+            "/api/" + version + "/admin/auth/login",
+            "/api/" + version + "/admin/auth/refresh",
+            "/api/" + version + "/health",
+            "/api/" + version + "/plans",
+            "/api/" + version + "/plans/{id}",
+            "/api/" + version + "/webhooks/**",
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/api-docs/**",
             "/v3/api-docs/**",
             "/actuator/**"
-    };
+        };
+    }
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
@@ -56,9 +63,9 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_URLS).permitAll()
-                        .requestMatchers("/api/onboarding/**").authenticated()
-                        .requestMatchers("/api/admin/**").hasAuthority("SUPER_ADMIN")
+                        .requestMatchers(getPublicUrls()).permitAll()
+                        .requestMatchers("/api/" + apiVersion + "/onboarding/**").authenticated()
+                        .requestMatchers("/api/" + apiVersion + "/admin/**").hasAuthority("SUPER_ADMIN")
                         .anyRequest().authenticated())
 
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

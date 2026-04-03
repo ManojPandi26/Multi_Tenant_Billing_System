@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/admin/metrics")
+@RequestMapping("/api/${api.version}/admin/metrics")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('SUPER_ADMIN')")
 @Tag(name = "Admin — Metrics", description = "Platform-wide aggregated metrics for the admin dashboard")

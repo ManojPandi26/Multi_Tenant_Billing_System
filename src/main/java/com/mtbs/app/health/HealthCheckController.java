@@ -12,7 +12,7 @@ import java.time.Instant;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/health")
+@RequestMapping("/api/${api.version}/health")
 @Tag(name = "Health", description = "Health check endpoint")
 public class HealthCheckController {
 

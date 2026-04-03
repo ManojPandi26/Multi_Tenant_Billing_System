@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/tenant")
+@RequestMapping("/api/${api.version}/tenant")
 @RequiredArgsConstructor
 @Tag(name = "Tenant Management", description = "Endpoints for tenants to manage their own settings and view status")
 public class TenantController {

@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/products")
+@RequestMapping("/api/${api.version}/products")
 @RequiredArgsConstructor
 @Tag(name = "Products", description = "Manage tenant product and service catalog")
 @SecurityRequirement(name = "bearerAuth")

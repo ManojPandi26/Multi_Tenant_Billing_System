@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/api/${api.version}/auth")
 @RequiredArgsConstructor
 @Tag(name = "Authentication", description = "Tenant signup, login, token management, and password reset")
 public class AuthController {

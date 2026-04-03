@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/roles")
+@RequestMapping("/api/${api.version}/roles")
 @RequiredArgsConstructor
 @Tag(name = "Role Management", description = "Endpoints for managing custom roles and applying permissions")
 public class RoleController {

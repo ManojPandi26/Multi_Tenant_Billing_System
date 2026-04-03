@@ -1,5 +1,6 @@
 package com.mtbs.shared.util;
 
+import com.mtbs.shared.config.ApiProperties;
 import com.mtbs.shared.constant.CookieConstants;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,24 +29,26 @@ public class CookieUtils {
     @Value("${jwt.refresh-expiration}")
     private long refreshTokenExpirationMs;
 
+    private final ApiProperties apiProperties;
+
     public void addAuthCookies(HttpServletResponse response, String accessToken, String refreshToken) {
         addAccessCookie(response, accessToken);
-        addRefreshCookie(response, refreshToken, CookieConstants.REFRESH_PATH);
+        addRefreshCookie(response, refreshToken, apiProperties.getAuthRefreshPath());
     }
 
     public void addAdminAuthCookies(HttpServletResponse response, String accessToken, String refreshToken) {
         addAccessCookie(response, accessToken);
-        addRefreshCookie(response, refreshToken, CookieConstants.ADMIN_REFRESH_PATH);
+        addRefreshCookie(response, refreshToken, apiProperties.getAdminAuthRefreshPath());
     }
 
     public void clearAuthCookies(HttpServletResponse response) {
         ResponseCookie accessCookie = buildClearCookie(CookieConstants.ACCESS_TOKEN_COOKIE, CookieConstants.ACCESS_PATH);
         response.addHeader(HttpHeaders.SET_COOKIE, accessCookie.toString());
 
-        ResponseCookie refreshCookie = buildClearCookie(CookieConstants.REFRESH_TOKEN_COOKIE, CookieConstants.REFRESH_PATH);
+        ResponseCookie refreshCookie = buildClearCookie(CookieConstants.REFRESH_TOKEN_COOKIE, apiProperties.getAuthRefreshPath());
         response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
 
-        ResponseCookie adminRefreshCookie = buildClearCookie(CookieConstants.REFRESH_TOKEN_COOKIE, CookieConstants.ADMIN_REFRESH_PATH);
+        ResponseCookie adminRefreshCookie = buildClearCookie(CookieConstants.REFRESH_TOKEN_COOKIE, apiProperties.getAdminAuthRefreshPath());
         response.addHeader(HttpHeaders.SET_COOKIE, adminRefreshCookie.toString());
     }
 

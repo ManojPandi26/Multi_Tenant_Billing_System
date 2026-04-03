@@ -24,7 +24,7 @@ import java.time.ZoneOffset;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/admin/audit-logs")
+@RequestMapping("/api/${api.version}/admin/audit-logs")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('SUPER_ADMIN')")
 @Tag(name = "Admin — Audit Logs", description = "Platform audit trail for all admin operations")

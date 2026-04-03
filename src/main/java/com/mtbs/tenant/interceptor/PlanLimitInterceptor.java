@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -24,20 +25,26 @@ public class PlanLimitInterceptor implements HandlerInterceptor {
     private final PlanLimitService planLimitService;
     private final StringRedisTemplate redisTemplate;
 
-    private static final List<String> EXCLUDED_PATHS = List.of(
-            "/api/auth",
-            "/api/health",
-            "/api/webhooks",
+    @Value("${api.version}")
+    private String apiVersion;
+
+    private List<String> getExcludedPaths() {
+        String version = apiVersion;
+        return List.of(
+            "/api/" + version + "/auth",
+            "/api/" + version + "/health",
+            "/api/" + version + "/webhooks",
             "/swagger-ui",
             "/v3/api-docs",
             "/actuator",
             "/favicon.ico");
+    }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
             Object handler) throws Exception {
         String path = request.getRequestURI();
-        boolean excluded = EXCLUDED_PATHS.stream()
+        boolean excluded = getExcludedPaths().stream()
                 .anyMatch(path::startsWith);
         if (excluded) {
             return true;

@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/admin/users")
+@RequestMapping("/api/${api.version}/admin/users")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('SUPER_ADMIN')")
 @Tag(name = "Admin — Users", description = "Platform admin cross-tenant user operations")

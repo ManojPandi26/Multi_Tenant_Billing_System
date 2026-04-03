@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/business-invoices")
+@RequestMapping("/api/${api.version}/business-invoices")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('BILLING_MANAGE')")
 @Tag(name = "Business Invoices",

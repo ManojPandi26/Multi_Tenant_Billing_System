@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/onboarding")
+@RequestMapping("/api/${api.version}/onboarding")
 @RequiredArgsConstructor
 @Tag(name = "Onboarding", description = "Tenant onboarding wizard — steps 1 through 3")
 @SecurityRequirement(name = "bearerAuth")

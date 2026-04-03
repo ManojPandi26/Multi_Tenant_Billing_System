@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/admin/auth")
+@RequestMapping("/api/${api.version}/admin/auth")
 @RequiredArgsConstructor
 @Tag(name = "Super Admin Auth", description = "Platform administrator authentication")
 public class AdminAuthController {

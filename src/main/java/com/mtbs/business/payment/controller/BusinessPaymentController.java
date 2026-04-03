@@ -23,7 +23,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/business-payments")
+@RequestMapping("/api/${api.version}/business-payments")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('BILLING_MANAGE')")
 @Tag(name = "Business Payments",
