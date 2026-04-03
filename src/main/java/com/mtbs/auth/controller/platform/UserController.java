@@ -3,6 +3,7 @@ package com.mtbs.auth.controller.platform;
 import com.mtbs.auth.dto.user.*;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.auth.service.UserService;
+import com.mtbs.shared.dto.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,9 +33,9 @@ public class UserController {
     @GetMapping
     @PreAuthorize("hasAuthority('USER_VIEW')")
     @Operation(summary = "List all active users in the tenant, paginated")
-    public ResponseEntity<ApiResponse<Page<UserResponse>>> getAllUsers(Pageable pageable) {
+    public ResponseEntity<ApiResponse<PageResponse<UserResponse>>> getAllUsers(Pageable pageable) {
         Page<UserResponse> response = userService.getAllUsers(pageable);
-        return ResponseEntity.ok(ApiResponse.success(response, "Users retrieved successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "All User retrieved successfully"));
     }
 
     @GetMapping("/{id}")

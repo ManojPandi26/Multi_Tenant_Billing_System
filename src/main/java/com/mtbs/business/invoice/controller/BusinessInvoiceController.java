@@ -4,6 +4,7 @@ import com.mtbs.business.invoice.dto.AddLineItemRequest;
 import com.mtbs.business.invoice.dto.BusinessInvoiceResponse;
 import com.mtbs.business.invoice.dto.CreateBusinessInvoiceRequest;
 import com.mtbs.shared.dto.common.ApiResponse;
+import com.mtbs.shared.dto.common.PageResponse;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.business.invoice.service.BusinessInvoiceService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -69,7 +70,7 @@ public class BusinessInvoiceController {
                       "Ordered by creation date descending. " +
                       "Requires BILLING_MANAGE permission."
     )
-    public ResponseEntity<ApiResponse<Page<BusinessInvoiceResponse>>> list(
+    public ResponseEntity<ApiResponse<PageResponse<BusinessInvoiceResponse>>> list(
             @Parameter(description = "Filter by customer ID")
             @RequestParam(required = false) Long customerId,
 
@@ -79,7 +80,7 @@ public class BusinessInvoiceController {
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
         Page<BusinessInvoiceResponse> response = invoiceService.list(customerId, status, pageable);
-        return ResponseEntity.ok(ApiResponse.success(response, "Invoices fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Invoices fetched successfully"));
     }
 
     // ── GET /api/business-invoices/{id} ───────────────────────────────────────

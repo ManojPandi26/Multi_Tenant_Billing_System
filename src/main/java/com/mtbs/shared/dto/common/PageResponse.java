@@ -9,6 +9,7 @@ import lombok.Setter;
 import org.springframework.data.domain.Page;
 
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Standardised paginated response wrapper.
@@ -16,7 +17,7 @@ import java.util.List;
  * Wraps Spring's {@link Page} into a clean JSON shape that doesn't expose
  * Spring internals to API clients. All paginated endpoints should return
  * {@code ApiResponse<PageResponse<T>>} instead of {@code ApiResponse<Page<T>>}.
- * <br />
+ *
  * JSON shape:
  * {
  *   "content": [...],
@@ -26,12 +27,18 @@ import java.util.List;
  *   "totalPages": 5,
  *   "first": true,
  *   "last": false,
- *   "empty": false
+ *   "empty": false,
+ *   "hasNext": false,
+ *   "hasPrevious": false
  * }
- * <br />
- * USAGE in controllers:
+ *
+ * USAGE in controllers (with mapper):
+ *   Page<User> page = userService.getAllUsers(pageable);
+ *   return ResponseEntity.ok(ApiResponse.success(PageResponse.of(page, userMapper::toResponse)));
+ *
+ * USAGE in controllers (already mapped):
  *   Page<UserResponse> page = userService.getAllUsers(pageable);
- *   return ResponseEntity.ok(ApiResponse.success(PageResponse.of(page), "Users fetched"));
+ *   return ResponseEntity.ok(ApiResponse.success(PageResponse.of(page)));
  *
  * USAGE with manual construction (for native queries):
  *   return PageResponse.<UserResponse>builder()
@@ -56,9 +63,16 @@ public class PageResponse<T> {
     private int size;
     private long totalElements;
     private int totalPages;
+
     private boolean first;
     private boolean last;
     private boolean empty;
+
+    /** True when there is a page after the current one. Useful for next-page buttons. */
+    private boolean hasNext;
+
+    /** True when there is a page before the current one. Useful for prev-page buttons. */
+    private boolean hasPrevious;
 
     /**
      * Convenience factory — wraps a Spring {@link Page} directly.
@@ -77,6 +91,8 @@ public class PageResponse<T> {
                 .first(springPage.isFirst())
                 .last(springPage.isLast())
                 .empty(springPage.isEmpty())
+                .hasNext(springPage.hasNext())
+                .hasPrevious(springPage.hasPrevious())
                 .build();
     }
 
@@ -87,15 +103,14 @@ public class PageResponse<T> {
      * Example:
      *   Page<User> users = userRepository.findAll(pageable);
      *   PageResponse<UserResponse> response =
-     *       PageResponse.of(users, this::mapToResponse);
+     *       PageResponse.of(users, userMapper::toResponse);
      *
      * @param springPage the Spring Page of entities
      * @param mapper     function to convert each entity to a DTO
      * @param <E>        entity type
      * @param <T>        DTO type
      */
-    public static <E, T> PageResponse<T> of(Page<E> springPage,
-                                             java.util.function.Function<E, T> mapper) {
+    public static <E, T> PageResponse<T> of(Page<E> springPage, Function<E, T> mapper) {
         return of(springPage.map(mapper));
     }
 }

@@ -3,6 +3,7 @@ package com.mtbs.admin.controller;
 import com.mtbs.admin.dto.AuditLogResponse;
 import com.mtbs.admin.service.AuditLogService;
 import com.mtbs.shared.dto.common.ApiResponse;
+import com.mtbs.shared.dto.common.PageResponse;
 import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
 import io.swagger.v3.oas.annotations.Operation;
@@ -74,38 +75,38 @@ public class AuditLogController {
 
     @GetMapping("/user/{userId}")
     @Operation(summary = "Get audit logs by admin user")
-    public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogsByUser(
+    public ResponseEntity<ApiResponse<PageResponse<AuditLogResponse>>> getAuditLogsByUser(
             @PathVariable Long userId,
             @PageableDefault(size = 20) Pageable pageable) {
 
         Page<AuditLogResponse> logs = auditLogService.getAuditLogsByUser(userId, pageable);
-        return ResponseEntity.ok(ApiResponse.success(logs, "Audit logs fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(logs), "Audit logs fetched successfully"));
     }
 
     @GetMapping("/entity/{entityType}/{entityId}")
     @Operation(summary = "Get audit logs by entity")
-    public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogsByEntity(
+    public ResponseEntity<ApiResponse<PageResponse<AuditLogResponse>>> getAuditLogsByEntity(
             @PathVariable AuditEntityType entityType,
             @PathVariable Long entityId,
             @PageableDefault(size = 20) Pageable pageable) {
 
         Page<AuditLogResponse> logs = auditLogService.getAuditLogsByEntity(entityType, entityId, pageable);
-        return ResponseEntity.ok(ApiResponse.success(logs, "Audit logs fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(logs), "Audit logs fetched successfully"));
     }
 
     @GetMapping("/tenant/{tenantId}")
     @Operation(summary = "Get audit logs by tenant")
-    public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogsByTenant(
+    public ResponseEntity<ApiResponse<PageResponse<AuditLogResponse>>> getAuditLogsByTenant(
             @PathVariable Long tenantId,
             @PageableDefault(size = 20) Pageable pageable) {
 
         Page<AuditLogResponse> logs = auditLogService.getAuditLogsByTenant(tenantId, pageable);
-        return ResponseEntity.ok(ApiResponse.success(logs, "Audit logs fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(logs), "Audit logs fetched successfully"));
     }
 
     @GetMapping("/date-range")
     @Operation(summary = "Get audit logs by date range")
-    public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogsByDateRange(
+    public ResponseEntity<ApiResponse<PageResponse<AuditLogResponse>>> getAuditLogsByDateRange(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -114,7 +115,7 @@ public class AuditLogController {
         Instant end = endDate.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
 
         Page<AuditLogResponse> logs = auditLogService.getAuditLogsByDateRange(start, end, pageable);
-        return ResponseEntity.ok(ApiResponse.success(logs, "Audit logs fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(logs), "Audit logs fetched successfully"));
     }
 
     @GetMapping("/statistics")

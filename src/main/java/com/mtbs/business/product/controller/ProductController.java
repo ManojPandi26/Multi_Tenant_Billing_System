@@ -5,6 +5,7 @@ import com.mtbs.business.product.dto.ProductResponse;
 import com.mtbs.business.product.dto.UpdateProductRequest;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.business.product.service.ProductService;
+import com.mtbs.shared.dto.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -69,13 +70,13 @@ public class ProductController {
                       "Ordered by active status (active first), then name alphabetically. " +
                       "Requires PRODUCT_MANAGE permission."
     )
-    public ResponseEntity<ApiResponse<Page<ProductResponse>>> list(
+    public ResponseEntity<ApiResponse<PageResponse<ProductResponse>>> list(
             @Parameter(description = "Optional search term — matches product name")
             @RequestParam(required = false) String search,
             @PageableDefault(size = 20) Pageable pageable) {
 
         Page<ProductResponse> response = productService.list(search, pageable);
-        return ResponseEntity.ok(ApiResponse.success(response, "Products fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Products fetched successfully"));
     }
 
     // ── GET /api/products/active ──────────────────────────────────────────────

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.*;
 
 import java.time.Instant;
+import java.util.Map;
 
 @Getter
 @Setter
@@ -18,6 +19,21 @@ public class ApiResponse<T> {
     private T data;
     private String errorCode;
     private Instant timestamp;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Map<String, String> fieldErrors;
+
+    public static <T> ApiResponse<T> validationError(String message,
+                                                     String errorCode,
+                                                     Map<String, String> fieldErrors) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .message(message)
+                .errorCode(errorCode)
+                .fieldErrors(fieldErrors)
+                .timestamp(Instant.now())
+                .build();
+    }
 
     public static <T> ApiResponse<T> success(T data) {
         return ApiResponse.<T>builder()

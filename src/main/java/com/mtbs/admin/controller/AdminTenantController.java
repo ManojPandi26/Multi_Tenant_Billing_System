@@ -5,6 +5,7 @@ import com.mtbs.admin.dto.AdminTenantListResponse;
 import com.mtbs.admin.dto.ChangeTenantPlanRequest;
 import com.mtbs.admin.dto.ChangeTenantStatusRequest;
 import com.mtbs.shared.dto.common.ApiResponse;
+import com.mtbs.shared.dto.common.PageResponse;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.shared.enums.auth.Status;
@@ -49,7 +50,7 @@ public class AdminTenantController {
                     "Optionally filter by status (ACTIVE, SUSPENDED, PENDING_ONBOARDING, etc.) " +
                     "and/or plan (FREE, PRO, ENTERPRISE)."
     )
-    public ResponseEntity<ApiResponse<Page<AdminTenantListResponse>>> getAllTenants(
+    public ResponseEntity<ApiResponse<PageResponse<AdminTenantListResponse>>> getAllTenants(
             @Parameter(description = "Filter by tenant status")
             @RequestParam(required = false) Status status,
 
@@ -59,7 +60,7 @@ public class AdminTenantController {
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
         Page<AdminTenantListResponse> response = adminTenantService.getAllTenants(status, planType, pageable);
-        return ResponseEntity.ok(ApiResponse.success(response, "Tenants fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Tenants fetched successfully"));
     }
 
     // ── GET /api/admin/tenants/{id} ───────────────────────────────────────────

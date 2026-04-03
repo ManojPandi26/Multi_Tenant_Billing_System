@@ -5,6 +5,7 @@ import com.mtbs.business.customer.dto.CustomerResponse;
 import com.mtbs.business.customer.dto.UpdateCustomerRequest;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.business.customer.service.CustomerService;
+import com.mtbs.shared.dto.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -67,13 +68,13 @@ public class CustomerController {
                       "Ordered by creation date descending. " +
                       "Requires CUSTOMER_MANAGE permission."
     )
-    public ResponseEntity<ApiResponse<Page<CustomerResponse>>> list(
+    public ResponseEntity<ApiResponse<PageResponse<CustomerResponse>>> list(
             @Parameter(description = "Optional search term — matches name or email")
             @RequestParam(required = false) String search,
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
         Page<CustomerResponse> response = customerService.list(search, pageable);
-        return ResponseEntity.ok(ApiResponse.success(response, "Customers fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Customers fetched successfully"));
     }
 
     // ── GET /api/customers/{id} ───────────────────────────────────────────────

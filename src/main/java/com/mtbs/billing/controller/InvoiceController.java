@@ -4,6 +4,7 @@ import com.mtbs.billing.dto.InvoiceResponse;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.InvoicePdfService;
+import com.mtbs.shared.dto.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -41,11 +42,11 @@ public class InvoiceController {
                     "ordered by creation date descending. Includes line items. " +
                     "Requires BILLING_MANAGE permission."
     )
-    public ResponseEntity<ApiResponse<Page<InvoiceResponse>>> listInvoices(
+    public ResponseEntity<ApiResponse<PageResponse<InvoiceResponse>>> listInvoices(
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
         Page<InvoiceResponse> response = invoiceService.listInvoices(pageable);
-        return ResponseEntity.ok(ApiResponse.success(response, "Invoices fetched successfully"));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Invoices fetched successfully"));
     }
 
     // ── GET /api/invoices/{id} ────────────────────────────────────────────────
