@@ -5,6 +5,8 @@ import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.InvoicePdfService;
 import com.mtbs.shared.dto.common.PageResponse;
+import com.mtbs.shared.annotation.TrackUsage;
+import com.mtbs.shared.enums.billing.UsageMetric;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -68,6 +70,7 @@ public class InvoiceController {
     // ── POST /api/invoices/{id}/void ──────────────────────────────────────────
 
     @PostMapping("/{id}/void")
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('BILLING_MANAGE')")
     @Operation(
             summary = "Void an invoice",
@@ -86,6 +89,7 @@ public class InvoiceController {
     // ── GET /api/invoices/{id}/download ───────────────────────────────────────
 
     @GetMapping("/{id}/download")
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('BILLING_MANAGE')")
     @Operation(
             summary = "Download invoice as PDF",

@@ -24,7 +24,9 @@ import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.exception.SubscriptionException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.entity.Plan;
+import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.tenant.repository.PlanRepository;
+import com.mtbs.tenant.repository.TenantRepository;
 import com.mtbs.tenant.service.PlanService;
 import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
@@ -83,6 +85,7 @@ public class SubscriptionService {
     private final SubscriptionRepository subscriptionRepository;
     private final PlanService planService;
     private final PlanRepository planRepository;
+    private final TenantRepository tenantRepository;
     private final TenantService tenantService;
     private final InvoiceService invoiceService;
     private final PaymentService paymentService;
@@ -504,6 +507,37 @@ public class SubscriptionService {
         log.info("Subscription expired: id={}", subscriptionId);
     }
 
+    /**
+     * Called by TrialExpiryJob when trial ends without payment.
+     * Generates invoice for trial usage and sets status to PAST_DUE.
+     * Gives tenant grace period to pay before subscription expires.
+     */
+    @CacheEvict(value = "dashboard", allEntries = true)
+    @Transactional
+    public void markTrialAsPastDue(Long subscriptionId) {
+        Subscription sub = subscriptionRepository.findById(subscriptionId)
+                .orElseThrow(() -> ResourceException.notFound("Subscription", subscriptionId));
+        
+        Plan plan = planService.getPlanById(sub.getPlanId());
+        sub.setStatus(SubscriptionStatus.PAST_DUE);
+        subscriptionRepository.save(sub);
+
+        log.info("Trial marked as PAST_DUE — subscriptionId={}", subscriptionId);
+
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.STATUS_CHANGE)
+                .entityType(AuditEntityType.SUBSCRIPTION)
+                .entityId(sub.getId())
+                .contextTenantId(TenantContext.getTenantId())
+                .contextTenantName(tenantService.fetchTenantName())
+                .changesBefore(Map.of("status", SubscriptionStatus.TRIALING.name()))
+                .changesAfter(Map.of("status", SubscriptionStatus.PAST_DUE.name()))
+                .description("Trial expired - payment required within grace period")
+                .module("BILLING")
+                .severity("WARN")
+                .build(), "Subscription", sub.getId());
+    }
+
     /** Called by SubscriptionExpiryJob after grace period expires. */
     @Transactional
     public void suspendForNonPayment(Long subscriptionId) {
@@ -904,9 +938,15 @@ public class SubscriptionService {
 
     private void fireSimpleEvent(NotificationEvent type, Plan plan, Subscription sub) {
         try {
+            Long tenantId = TenantContext.getTenantId();
+            Tenant tenant = tenantRepository.findById(tenantId).orElse(null);
+
             outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(type)
-                    .tenantName(tenantService.fetchTenantName())
+                    .tenantId(tenantId)
+                    .tenantName(tenant != null ? tenant.getName() : tenantService.fetchTenantName())
+                    .recipientEmail(tenant != null ? tenant.getOwnerEmail() : null)
+                    .recipientName(tenant != null ? tenant.getName() : null)
                     .planName(plan.getDisplayName())
                     .planPrice(plan.getPriceMonthly())
                     .billingCycle(sub.getBillingCycle() != null ? sub.getBillingCycle().name() : null)
@@ -921,9 +961,15 @@ public class SubscriptionService {
     private void fireUpgradeEvent(NotificationEvent type, Plan oldPlan, Plan newPlan,
                                   Subscription sub, Long invoiceId) {
         try {
+            Long tenantId = TenantContext.getTenantId();
+            Tenant tenant = tenantRepository.findById(tenantId).orElse(null);
+
             outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(type)
-                    .tenantName(tenantService.fetchTenantName())
+                    .tenantId(tenantId)
+                    .tenantName(tenant != null ? tenant.getName() : tenantService.fetchTenantName())
+                    .recipientEmail(tenant != null ? tenant.getOwnerEmail() : null)
+                    .recipientName(tenant != null ? tenant.getName() : null)
                     .planName(newPlan.getDisplayName())
                     .oldPlanName(oldPlan.getDisplayName())
                     .planPrice(newPlan.getPriceMonthly())
@@ -931,7 +977,7 @@ public class SubscriptionService {
                     .nextBillingDate(sub.getCurrentPeriodEnd())
                     .build(), "Subscription", sub.getId());
         } catch (Exception e) {
-            log.warn("Failed to fire {} event: {}", type, e.getMessage());
-        }
+            log.warn("Failed to fire upgrade event: {}", type, e.getMessage());
     }
+}
 }

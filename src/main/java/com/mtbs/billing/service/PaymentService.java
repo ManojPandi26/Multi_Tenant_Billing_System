@@ -330,6 +330,45 @@ public class PaymentService {
         return paymentMapper.toResponse(payment);
     }
 
+    // ── Payment Link ─────────────────────────────────────────────────────────
+
+    /**
+     * Creates a Razorpay payment link for an invoice.
+     * Returns the payment link ID that can be sent to the customer.
+     */
+    @Transactional
+    public String createPaymentLink(Long invoiceId) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> ResourceException.notFound("Invoice", invoiceId));
+
+        long amountPaise = invoice.getTotalAmount()
+                .multiply(BigDecimal.valueOf(100))
+                .longValue();
+
+        String description = "Invoice: " + invoice.getInvoiceNumber();
+        String receipt = invoice.getInvoiceNumber();
+        String customerEmail = null;
+        String customerName = tenantService.fetchTenantName();
+        String customerPhone = null;
+
+        String paymentLinkId = paymentGateway.createPaymentLink(
+                amountPaise,
+                invoice.getCurrency(),
+                description,
+                customerEmail,
+                customerName,
+                customerPhone,
+                receipt
+        );
+
+        invoice.setRazorpayInvoiceId(paymentLinkId);
+        invoiceRepository.save(invoice);
+
+        log.info("Payment link created for invoice {}: {}", invoiceId, paymentLinkId);
+
+        return paymentLinkId;
+    }
+
     // ── Queries ───────────────────────────────────────────────────────────────
 
     public PaymentResponse getPaymentById(Long id) {

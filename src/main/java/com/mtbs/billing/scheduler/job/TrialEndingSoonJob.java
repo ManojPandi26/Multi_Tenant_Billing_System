@@ -1,5 +1,6 @@
 package com.mtbs.billing.scheduler.job;
 
+import com.mtbs.billing.dto.InvoiceResponse;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.tenant.entity.Tenant;
@@ -11,6 +12,8 @@ import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.PlanRepository;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.billing.service.InvoiceService;
+import com.mtbs.billing.service.PaymentService;
 import com.mtbs.shared.enums.auth.Status;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,15 +24,17 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Runs daily at 08:00 UTC.
  *
  * Finds all TRIALING subscriptions whose trial ends in the next
- * 3-day window and fires a TRIAL_ENDING_SOON notification for each.
- *
- * Window: trialEnd is between now and now + 3 days (exclusive upper bound
- * to avoid double-firing with TrialExpiryJob which handles trialEnd < now).
+ * 3-day window and:
+ * 1. Fires a TRIAL_ENDING_SOON notification
+ * 2. Generates an invoice for the subscription plan
+ * 3. Creates a Razorpay payment link
+ * 4. Sends email with invoice + payment link
  *
  * Each tenant is processed in isolation — TenantContext is set and cleared
  * per tenant so schema routing works correctly.
@@ -39,13 +44,14 @@ import java.util.List;
 @Slf4j
 public class TrialEndingSoonJob implements Job {
 
-    // How many days ahead to look for expiring trials
     private static final int DAYS_BEFORE_EXPIRY = 3;
 
     private final TenantRepository tenantRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
     private final OutboxEventPublisher outboxEventPublisher;
+    private final InvoiceService invoiceService;
+    private final PaymentService paymentService;
 
     @Override
     public void execute(JobExecutionContext context) {
@@ -56,40 +62,44 @@ public class TrialEndingSoonJob implements Job {
         Instant windowEnd = now.plus(DAYS_BEFORE_EXPIRY, ChronoUnit.DAYS);
 
         int notified = 0;
+        AtomicInteger invoicesGenerated = new AtomicInteger();
 
         for (Tenant tenant : activeTenants) {
             try {
                 TenantContext.setTenantId(tenant.getId());
                 TenantContext.setCurrentSchema(tenant.getSchemaName());
 
-                // Find TRIALING subscription whose trial ends within the 3-day window
                 subscriptionRepository
                         .findFirstByStatusIn(List.of(SubscriptionStatus.TRIALING))
                         .ifPresent(sub -> {
                             if (isTrialEndingWithinWindow(sub, now, windowEnd)) {
-                                fireNotification(tenant, sub);
+                                try {
+                                    long daysLeft = ChronoUnit.DAYS.between(now, sub.getTrialEnd());
+                                    
+                                    fireNotification(tenant, sub, daysLeft);
+                                    generateInvoiceAndPaymentLink(tenant, sub);
+                                    invoicesGenerated.getAndIncrement();
+                                    
+                                } catch (Exception e) {
+                                    log.error("Failed to process trial ending for tenant {}: {}", 
+                                            tenant.getId(), e.getMessage(), e);
+                                }
                             }
                         });
 
                 notified++;
             } catch (Exception e) {
-                log.error("TrialEndingSoonJob failed for tenantId={}: {}",
+                log.error("TrialEndingSoonJob failed for tenantId={}: {}", 
                         tenant.getId(), e.getMessage(), e);
             } finally {
                 TenantContext.clear();
             }
         }
 
-        log.info("TrialEndingSoonJob completed — processed {} tenants", notified);
+        log.info("TrialEndingSoonJob completed — processed {} tenants, generated {} invoices", 
+                notified, invoicesGenerated);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /**
-     * Returns true if the trial ends AFTER now and BEFORE (or at) windowEnd.
-     * Excludes already-expired trials (trialEnd < now) — those are handled
-     * by TrialExpiryJob.
-     */
     private boolean isTrialEndingWithinWindow(Subscription sub, Instant now, Instant windowEnd) {
         Instant trialEnd = sub.getTrialEnd();
         return trialEnd != null
@@ -97,13 +107,11 @@ public class TrialEndingSoonJob implements Job {
                 && !trialEnd.isAfter(windowEnd);
     }
 
-    private void fireNotification(Tenant tenant, Subscription sub) {
+    private void fireNotification(Tenant tenant, Subscription sub, long daysLeft) {
         try {
             String planDisplayName = planRepository.findById(sub.getPlanId())
                     .map(Plan::getDisplayName)
                     .orElse("your plan");
-
-            long daysLeft = ChronoUnit.DAYS.between(Instant.now(), sub.getTrialEnd());
 
             outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(NotificationEvent.TRIAL_ENDING_SOON)
@@ -121,6 +129,34 @@ public class TrialEndingSoonJob implements Job {
         } catch (Exception e) {
             log.warn("Failed to fire TRIAL_ENDING_SOON for tenantId={}: {}",
                     tenant.getId(), e.getMessage());
+        }
+    }
+
+    private void generateInvoiceAndPaymentLink(Tenant tenant, Subscription sub) {
+        try {
+            Instant periodStart = sub.getCurrentPeriodStart() != null 
+                    ? sub.getCurrentPeriodStart() 
+                    : sub.getTrialStart();
+            Instant periodEnd = sub.getCurrentPeriodEnd() != null 
+                    ? sub.getCurrentPeriodEnd() 
+                    : sub.getTrialEnd();
+
+            InvoiceResponse invoice = invoiceService.generateInvoice(
+                    sub.getId(), 
+                    periodStart, 
+                    periodEnd
+            );
+
+            invoiceService.finalizeInvoice(invoice.getId());
+
+            var orderResponse = paymentService.processPayment(invoice.getId());
+
+            log.info("Invoice generated for trial ending soon — tenantId={}, invoiceId={}, orderId={}",
+                    tenant.getId(), invoice.getId(), orderResponse.getOrderId());
+
+        } catch (Exception e) {
+            log.error("Failed to generate invoice for tenantId={}: {}", 
+                    tenant.getId(), e.getMessage(), e);
         }
     }
 }
