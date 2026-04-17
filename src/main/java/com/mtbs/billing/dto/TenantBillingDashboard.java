@@ -5,7 +5,6 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 
 @Getter
 @Setter
@@ -15,7 +14,7 @@ import java.util.List;
 public class TenantBillingDashboard {
 
     private SubscriptionSummary subscription;
-    private UsageSummarySection usage;
+    private UsageLimitsResponse usage;
     private InvoiceSummary recentInvoice;
     private PaymentSummary paymentSummary;
 
@@ -29,15 +28,6 @@ public class TenantBillingDashboard {
         private String planName;
         private SubscriptionStatus status;
         private Instant currentPeriodEnd;
-    }
-
-    @Getter
-    @Setter
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class UsageSummarySection {
-        private List<UsageResponse> metrics;
     }
 
     @Getter

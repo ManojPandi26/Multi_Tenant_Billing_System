@@ -1,19 +1,17 @@
 package com.mtbs.billing.service;
 
+import com.mtbs.auth.repository.UserRepository;
+import com.mtbs.billing.dto.UsageLimitsResponse;
 import com.mtbs.billing.dto.UsageResponse;
-import com.mtbs.tenant.entity.Plan;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.billing.entity.UsageRecord;
-import com.mtbs.billing.entity.UsageSummary;
-import com.mtbs.shared.enums.billing.UsageMetric;
-import com.mtbs.shared.enums.notification.NotificationEvent;
-import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.billing.event.outbox.OutboxEventPublisher;
-import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.billing.repository.UsageRecordRepository;
-import com.mtbs.billing.repository.UsageSummaryRepository;
-import com.mtbs.tenant.service.PlanService;
+import com.mtbs.shared.enums.auth.Status;
+import com.mtbs.shared.enums.billing.SubscriptionStatus;
+import com.mtbs.shared.enums.billing.UsageMetric;
+import com.mtbs.tenant.entity.Plan;
+import com.mtbs.tenant.repository.PlanRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,234 +20,262 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class UsageService {
 
-    private static final int WARNING_THRESHOLD_PERCENT = 80;
-
     private final UsageRecordRepository usageRecordRepository;
-    private final UsageSummaryRepository usageSummaryRepository;
+    private final UserRepository userRepository;
     private final SubscriptionRepository subscriptionRepository;
-    private final SubscriptionService subscriptionService;
-    private final PlanService planService;
-    private final OutboxEventPublisher outboxEventPublisher;
+    private final PlanRepository planRepository;
 
-    // ── Record usage — called by @TrackUsage AOP ──────────────────────────────
-
-    /**
-     * Records a single usage event for the current subscription's billing period.
-     * Called by UsageTrackingAspect after a @TrackUsage-annotated method succeeds.
-     * Never called directly from a controller.
-     */
     @Transactional
-    public void recordUsage(UsageMetric metric, long quantity) {
-        Subscription subscription = subscriptionService.getCurrentSubscriptionEntity();
-        if (subscription == null) {
-            log.debug("No active subscription — skipping usage recording for metric={}", metric);
-            return;
-        }
-
-        UsageRecord record = UsageRecord.builder()
-                .subscriptionId(subscription.getId())
-                .metricType(metric)
-                .quantity(quantity)
-                .recordedAt(Instant.now())
-                .billingPeriodStart(subscription.getCurrentPeriodStart())
-                .billingPeriodEnd(subscription.getCurrentPeriodEnd())
-                .build();
-
-        usageRecordRepository.save(record);
-        log.debug("Usage recorded — metric={}, quantity={}", metric, quantity);
+    public void recordApiCall(Long tenantId, Long subscriptionId, Instant periodStart, Instant periodEnd) {
+        recordUsage(tenantId, subscriptionId, UsageMetric.API_CALLS, 1L, 0L, periodStart, periodEnd);
+        log.debug("API call recorded for tenantId={}, subscriptionId={}, periodStart={}", tenantId, subscriptionId, periodStart);
     }
 
-    // ── Query current period usage — exposed via controller ───────────────────
+    @Transactional
+    public void recordStorageUsage(Long tenantId, Long subscriptionId, long fileSizeBytes, Instant periodStart, Instant periodEnd) {
+        recordUsage(tenantId, subscriptionId, UsageMetric.STORAGE_GB, 1L, fileSizeBytes, periodStart, periodEnd);
+        log.debug("Storage usage recorded for tenantId={}, subscriptionId={}, bytes={}, periodStart={}", tenantId, subscriptionId, fileSizeBytes, periodStart);
+    }
 
-    /**
-     * Returns usage vs limits for all metrics in the current billing period.
-     * Exposed via GET /api/usage/current.
-     */
+    public long getActiveUserCount(Long tenantId) {
+        return userRepository.countByDeletedFalseAndStatus(Status.ACTIVE);
+    }
+
+    public long getApiCallCount(Long tenantId, Instant periodStart) {
+        Long count = usageRecordRepository.sumCountByTenantAndMetricSince(
+                tenantId, UsageMetric.API_CALLS, periodStart);
+        return count != null ? count : 0L;
+    }
+
+    public long getStorageBytes(Long tenantId, Instant periodStart) {
+        Long bytes = usageRecordRepository.sumValueBytesByTenantAndMetricAndPeriod(
+                tenantId, UsageMetric.STORAGE_GB, periodStart);
+        return bytes != null ? bytes : 0L;
+    }
+
     public List<UsageResponse> getCurrentUsage() {
-        Subscription subscription = subscriptionService.getCurrentSubscriptionEntity();
+        Long tenantId = com.mtbs.shared.util.SecurityUtils.getCurrentTenantId();
+        Subscription subscription = subscriptionRepository
+                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
+                .orElse(null);
+        
         if (subscription == null) {
             return List.of();
         }
-
-        Plan plan = planService.getPlanById(subscription.getPlanId());
-        List<UsageResponse> result = new ArrayList<>();
-
-        for (UsageMetric metric : UsageMetric.values()) {
-            long current = safeSum(usageRecordRepository
-                    .sumQuantityByMetricTypeAndBillingPeriodStartAndBillingPeriodEnd(
-                            metric,
-                            subscription.getCurrentPeriodStart(),
-                            subscription.getCurrentPeriodEnd()));
-
-            long limit = getLimitForMetric(plan, metric);
-
-            result.add(UsageResponse.builder()
-                    .metric(metric)
-                    .current(current)
-                    .limit(limit)
-                    .periodStart(subscription.getCurrentPeriodStart())
-                    .periodEnd(subscription.getCurrentPeriodEnd())
-                    .build());
-        }
-
-        return result;
+        
+        return getUsageForPeriod(subscription.getCurrentPeriodStart(), subscription.getCurrentPeriodEnd());
     }
 
-    /**
-     * Returns usage for a specific date range.
-     * Exposed via GET /api/usage?start=&end=.
-     */
     public List<UsageResponse> getUsageForPeriod(Instant start, Instant end) {
-        Subscription subscription = subscriptionService.getCurrentSubscriptionEntity();
-        if (subscription == null) {
+        Long tenantId = com.mtbs.shared.util.SecurityUtils.getCurrentTenantId();
+        if (tenantId == null) {
             return List.of();
         }
-
-        Plan plan = planService.getPlanById(subscription.getPlanId());
-        List<UsageResponse> result = new ArrayList<>();
-
-        for (UsageMetric metric : UsageMetric.values()) {
-            long current = safeSum(usageRecordRepository
-                    .sumQuantityByMetricTypeAndBillingPeriodStartAndBillingPeriodEnd(
-                            metric, start, end));
-
-            long limit = getLimitForMetric(plan, metric);
-
-            result.add(UsageResponse.builder()
-                    .metric(metric)
-                    .current(current)
-                    .limit(limit)
-                    .periodStart(start)
-                    .periodEnd(end)
-                    .build());
-        }
-
-        return result;
-    }
-
-    // ── Enforce limits — called by @TrackUsage AOP ────────────────────────────
-
-    /**
-     * Checks whether the given metric is at or over its plan limit.
-     * Fires USAGE_LIMIT_WARNING at 80% and throws at 100%.
-     * Called by UsageTrackingAspect before the annotated method executes.
-     * Never called directly from a controller.
-     */
-    public void checkAndEnforceLimits(UsageMetric metric) {
-        Subscription subscription = subscriptionService.getCurrentSubscriptionEntity();
-        if (subscription == null) {
-            return;
-        }
-
-        Plan plan = planService.getPlanById(subscription.getPlanId());
-        long limit = getLimitForMetric(plan, metric);
-
-        if (limit == -1L) {
-            return; // Unlimited
-        }
-
-        long current = safeSum(usageRecordRepository
-                .sumQuantityByMetricTypeAndBillingPeriodStartAndBillingPeriodEnd(
-                        metric,
-                        subscription.getCurrentPeriodStart(),
-                        subscription.getCurrentPeriodEnd()));
-
-        if (limit > 0) {
-            int percent = (int) ((current * 100) / limit);
-
-            // Fire warning at 80% — but only on exact crossing (current+1 will hit 80%)
-            if (percent >= WARNING_THRESHOLD_PERCENT && percent < 100) {
-                fireUsageEvent(NotificationEvent.USAGE_LIMIT_WARNING, metric, current, limit, percent);
+        
+        List<UsageResponse> responses = new ArrayList<>();
+        
+        Subscription subscription = subscriptionRepository
+                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
+                .orElse(null);
+        
+        Long apiCallsLimit = null;
+        Long storageLimitGb = null;
+        Long usersLimit = null;
+        
+        if (subscription != null) {
+            Plan plan = planRepository.findById(subscription.getPlanId()).orElse(null);
+            if (plan != null) {
+                apiCallsLimit = plan.getMaxApiCallsPerMonth();
+                storageLimitGb = plan.getMaxStorageGb() != null ? plan.getMaxStorageGb().longValue() : null;
+                usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers().longValue() : null;
             }
         }
-
-        if (current >= limit) {
-            fireUsageEvent(NotificationEvent.USAGE_LIMIT_REACHED, metric, current, limit, 100);
-            throw ResourceException.planLimitExceeded(metric.name(), limit, current);
+        
+        long apiCallsCount = 0L;
+        List<UsageRecord> apiCallRecords = usageRecordRepository
+                .findByTenantIdAndMetricTypeAndBillingPeriodStartBetween(
+                        tenantId, UsageMetric.API_CALLS, start, end);
+        for (UsageRecord record : apiCallRecords) {
+            apiCallsCount += record.getQuantity();
         }
+        
+        responses.add(buildUsageResponse(UsageMetric.API_CALLS, apiCallsCount, apiCallsLimit, start, end));
+        
+        long storageBytes = 0L;
+        List<UsageRecord> storageRecords = usageRecordRepository
+                .findByTenantIdAndMetricTypeAndBillingPeriodStartBetween(
+                        tenantId, UsageMetric.STORAGE_GB, start, end);
+        for (UsageRecord record : storageRecords) {
+            storageBytes += record.getValueBytes();
+        }
+        
+        long storageBytesToGb = storageBytes;
+        responses.add(buildStorageUsageResponse(UsageMetric.STORAGE_GB, storageBytesToGb, storageLimitGb, start, end));
+        
+        return responses;
+    }
+    
+    private UsageResponse buildUsageResponse(UsageMetric metric, long current, Long limit, Instant start, Instant end) {
+        Long remaining = null;
+        Double percentUsed = null;
+        
+        if (limit != null && limit > 0) {
+            remaining = Math.max(limit - current, 0L);
+            percentUsed = Math.round((current * 100.0 / limit) * 10.0) / 10.0;
+        }
+        
+        return UsageResponse.builder()
+                .metric(metric)
+                .current(current)
+                .limit(limit)
+                .remaining(remaining)
+                .percentUsed(percentUsed)
+                .periodStart(start)
+                .periodEnd(end)
+                .build();
+    }
+    
+    private UsageResponse buildStorageUsageResponse(UsageMetric metric, long storageBytes, Long storageLimitGb, Instant start, Instant end) {
+        Long remaining = null;
+        Double percentUsed = null;
+        
+        if (storageLimitGb != null && storageLimitGb > 0) {
+            long storageGb = storageBytes / (1024 * 1024 * 1024);
+            remaining = Math.max(storageLimitGb - storageGb, 0L);
+            percentUsed = Math.round((storageGb * 100.0 / storageLimitGb) * 10.0) / 10.0;
+        }
+        
+        return UsageResponse.builder()
+                .metric(metric)
+                .current(storageBytes)
+                .limit(storageLimitGb)
+                .remaining(remaining)
+                .percentUsed(percentUsed)
+                .periodStart(start)
+                .periodEnd(end)
+                .build();
     }
 
-    // ── Aggregate — called by UsageAggregationJob (scheduler only) ───────────
+    public List<UsageRecord> getUnbilledUsageRecords(Long tenantId, Instant periodStart) {
+        List<UsageRecord> unbilledRecords = new ArrayList<>();
+        
+        List<UsageRecord> apiCallRecords = usageRecordRepository
+                .findByTenantIdAndMetricTypeAndBillingPeriodStartBetweenAndIsBilledFalse(
+                        tenantId, UsageMetric.API_CALLS, periodStart, Instant.now());
+        unbilledRecords.addAll(apiCallRecords);
+        
+        List<UsageRecord> storageRecords = usageRecordRepository
+                .findByTenantIdAndMetricTypeAndBillingPeriodStartBetweenAndIsBilledFalse(
+                        tenantId, UsageMetric.STORAGE_GB, periodStart, Instant.now());
+        unbilledRecords.addAll(storageRecords);
+        
+        return unbilledRecords;
+    }
 
-    /**
-     * Aggregates raw UsageRecord rows into UsageSummary per metric per billing period.
-     * Called hourly by UsageAggregationJob — never from a controller.
-     */
-    @Transactional
-    public void aggregateUsageForBilling(Long subscriptionId) {
-        Subscription subscription = subscriptionRepository.findById(subscriptionId)
+    public void markUsageAsBilled(Long tenantId, UsageMetric metric, Instant periodStart) {
+        usageRecordRepository.markAsBilled(tenantId, metric, periodStart);
+        log.info("Marked {} usage as billed for tenant {} since {}", metric, tenantId, periodStart);
+    }
+
+    public UsageLimitsResponse getLimitsForCurrentPeriod(Long tenantId) {
+        Subscription subscription = subscriptionRepository
+                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
                 .orElse(null);
-
         if (subscription == null) {
-            log.warn("aggregateUsageForBilling called with unknown subscriptionId={}", subscriptionId);
-            return;
+            return UsageLimitsResponse.builder()
+                    .apiCallsUsed(0)
+                    .apiCallsLimit(0)
+                    .apiCallsUnlimited(false)
+                    .activeUsersCount(0)
+                    .usersLimit(0)
+                    .usersUnlimited(false)
+                    .storageUsedBytes(0)
+                    .storageUsedGb(0.0)
+                    .storageLimitGb(0)
+                    .storageUnlimited(false)
+                    .build();
         }
+
+        Plan plan = planRepository.findById(subscription.getPlanId())
+                .orElseThrow(() -> new IllegalStateException("Plan not found for subscription"));
 
         Instant periodStart = subscription.getCurrentPeriodStart();
-        Instant periodEnd = subscription.getCurrentPeriodEnd();
 
-        for (UsageMetric metric : UsageMetric.values()) {
-            long total = safeSum(usageRecordRepository
-                    .sumQuantityByMetricTypeAndBillingPeriodStartAndBillingPeriodEnd(
-                            metric, periodStart, periodEnd));
+        long apiCallsUsed = getApiCallCount(tenantId, periodStart);
+        long apiCallsLimit = plan.getMaxApiCallsPerMonth() != null ? plan.getMaxApiCallsPerMonth() : -1L;
+        boolean apiCallsUnlimited = apiCallsLimit == -1L;
 
-            Optional<UsageSummary> existing = usageSummaryRepository
-                    .findBySubscriptionIdAndMetricTypeAndBillingPeriodStartAndBillingPeriodEnd(
-                            subscriptionId, metric, periodStart, periodEnd);
+        long activeUsersCount = getActiveUserCount(tenantId);
+        long usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers() : -1L;
+        boolean usersUnlimited = usersLimit == -1L;
 
-            if (existing.isPresent()) {
-                UsageSummary summary = existing.get();
-                summary.setTotalQuantity(total);
-                usageSummaryRepository.save(summary);
-            } else {
-                UsageSummary summary = UsageSummary.builder()
-                        .subscriptionId(subscriptionId)
-                        .metricType(metric)
-                        .totalQuantity(total)
-                        .billingPeriodStart(periodStart)
-                        .billingPeriodEnd(periodEnd)
-                        .isBilled(false)
-                        .build();
-                usageSummaryRepository.save(summary);
-            }
-        }
+        long storageUsedBytes = getStorageBytes(tenantId, periodStart);
+        double storageUsedGb = Math.round((storageUsedBytes / (1024.0 * 1024.0 * 1024.0)) * 100.0) / 100.0;
+        long storageLimitGb = plan.getMaxStorageGb() != null ? plan.getMaxStorageGb() : -1L;
+        boolean storageUnlimited = storageLimitGb == -1L;
 
-        log.debug("Usage aggregated for subscriptionId={}", subscriptionId);
+        double apiCallsUsagePercent = apiCallsLimit > 0 ? (apiCallsUsed * 100.0 / apiCallsLimit) : 0.0;
+        double usersUsagePercent = usersLimit > 0 ? (activeUsersCount * 100.0 / usersLimit) : 0.0;
+        double storageUsagePercent = storageLimitGb > 0 ? (storageUsedGb * 100.0 / storageLimitGb) : 0.0;
+
+        return UsageLimitsResponse.builder()
+                .apiCallsUsed(apiCallsUsed)
+                .apiCallsLimit(apiCallsUnlimited ? 0 : apiCallsLimit)
+                .apiCallsUnlimited(apiCallsUnlimited)
+                .apiCallsUsagePercent(apiCallsUsagePercent)
+                .activeUsersCount(activeUsersCount)
+                .usersLimit(usersUnlimited ? 0 : usersLimit)
+                .usersUnlimited(usersUnlimited)
+                .usersUsagePercent(usersUsagePercent)
+                .storageUsedBytes(storageUsedBytes)
+                .storageUsedGb(storageUsedGb)
+                .storageLimitGb(storageUnlimited ? 0 : storageLimitGb)
+                .storageUnlimited(storageUnlimited)
+                .storageUsagePercent(storageUsagePercent)
+                .periodStart(subscription.getCurrentPeriodStart())
+                .periodEnd(subscription.getCurrentPeriodEnd())
+                .planName(plan.getDisplayName())
+                .build();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    public long getLimitForMetric(Plan plan, UsageMetric metric) {
-        return switch (metric) {
-            case API_CALLS     -> plan.getMaxApiCallsPerMonth() != null ? plan.getMaxApiCallsPerMonth() : -1L;
-            case ACTIVE_USERS  -> plan.getMaxUsers() != null ? plan.getMaxUsers() : -1L;
-            case STORAGE_GB    -> plan.getMaxStorageGb() != null ? plan.getMaxStorageGb() : -1L;
-        };
-    }
-
-    private long safeSum(Long value) {
-        return value != null ? value : 0L;
-    }
-
-    private void fireUsageEvent(NotificationEvent eventType, UsageMetric metric,
-                                long current, long limit, int percent) {
+    private void recordUsage(Long tenantId, Long subscriptionId, UsageMetric metric, Long quantity, Long valueBytes,
+                             Instant periodStart, Instant periodEnd) {
         try {
-            outboxEventPublisher.save(BillingEvent.builder()
-                    .eventType(eventType)
-                    .metricName(metric.name())
-                    .currentUsage(current)
-                    .usageLimit(limit)
-                    .usagePercent(percent)
-                    .build(), "Usage", (String) null);
+            usageRecordRepository
+                    .findByTenantIdAndMetricTypeAndBillingPeriodStart(tenantId, metric, periodStart)
+                    .ifPresentOrElse(
+                            record -> {
+                                record.setQuantity(record.getQuantity() + quantity);
+                                if (metric == UsageMetric.STORAGE_GB) {
+                                    record.setValueBytes(record.getValueBytes() + valueBytes);
+                                }
+                                usageRecordRepository.save(record);
+                                log.debug("Updated existing UsageRecord id={} for tenantId={}", record.getId(), tenantId);
+                            },
+                            () -> {
+                                UsageRecord record = UsageRecord.builder()
+                                        .tenantId(tenantId)
+                                        .subscriptionId(subscriptionId)
+                                        .metricType(metric)
+                                        .quantity(quantity)
+                                        .valueBytes(metric == UsageMetric.STORAGE_GB ? valueBytes : 0L)
+                                        .recordedAt(Instant.now())
+                                        .billingPeriodStart(periodStart)
+                                        .billingPeriodEnd(periodEnd)
+                                        .build();
+                                usageRecordRepository.save(record);
+                                log.debug("Created new UsageRecord for tenantId={}, metric={}", tenantId, metric);
+                            }
+                    );
         } catch (Exception e) {
-            log.warn("Failed to fire {} event for metric={}: {}", eventType, metric, e.getMessage());
+            log.error("Failed to record usage for tenantId={}, metric={}: {}", tenantId, metric, e.getMessage(), e);
+            throw e;
         }
     }
 }

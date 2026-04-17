@@ -92,26 +92,6 @@ public class QuartzConfig {
                 .build();
     }
 
-    // â”€â”€â”€ Usage Aggregation Job â€” Hourly â”€â”€â”€
-    @Bean
-    public JobDetail usageAggregationJobDetail() {
-        return JobBuilder.newJob(UsageAggregationJob.class)
-                .withIdentity("usageAggregationJob", "billing")
-                .withDescription("Hourly usage aggregation into summaries")
-                .storeDurably()
-                .build();
-    }
-
-    @Bean
-    public Trigger usageAggregationTrigger(JobDetail usageAggregationJobDetail) {
-        return TriggerBuilder.newTrigger()
-                .forJob(usageAggregationJobDetail)
-                .withIdentity("usageAggregationTrigger", "billing")
-                .withSchedule(CronScheduleBuilder.cronSchedule("0 0 * * * ?")
-                        .withMisfireHandlingInstructionFireAndProceed())
-                .build();
-    }
-
     // â”€â”€â”€ Trial Expiry Job â€” Daily at midnight â”€â”€â”€
     @Bean
     public JobDetail trialExpiryJobDetail() {

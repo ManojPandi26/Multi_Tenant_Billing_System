@@ -1,13 +1,15 @@
 package com.mtbs.business.invoice.service;
 
 import com.itextpdf.kernel.colors.Color;
+import com.mtbs.billing.entity.Subscription;
+import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.business.customer.service.CustomerService;
 import com.mtbs.business.invoice.entity.BusinessInvoice;
 import com.mtbs.business.invoice.entity.BusinessInvoiceItem;
 import com.mtbs.business.customer.entity.Customer;
-import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.business.invoice.repository.BusinessInvoiceItemRepository;
 import com.mtbs.business.invoice.repository.BusinessInvoiceRepository;
+import com.mtbs.billing.service.UsageService;
 import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.font.PdfFont;
@@ -23,8 +25,11 @@ import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
+import com.mtbs.shared.exception.ResourceException;
+import com.mtbs.shared.multitenancy.TenantContextHolder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,26 +40,6 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
-/**
- * Generates PDF invoices for business billing using iText 8.
- *
- * Design decisions:
- *  - Standalone service — does NOT extend or inherit InvoicePdfService.
- *    Business invoices have different data (customer, GST, line item tax breakdown)
- *    from subscription invoices. Sharing a base class would require awkward generics.
- *  - Reuses the same iText 8 dependency already in pom.xml.
- *  - Returns raw byte[] — caller decides whether to stream to HTTP or store to S3.
- *  - Reads fresh from DB inside its own @Transactional(readOnly=true) — never
- *    relies on stale entity state passed from the controller layer.
- *
- * PDF layout:
- *   Header: tenant name + "TAX INVOICE" heading + invoice number/date
- *   Bill To: customer name, email, address, GSTIN
- *   Line items table: description, qty, unit price, tax%, tax amount, total
- *   Totals section: subtotal, tax, grand total
- *   Notes: free-text from invoice.notes
- *   Footer: payment due date + "Thank you for your business"
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -63,21 +48,17 @@ public class BusinessInvoicePdfService {
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("dd MMM yyyy").withZone(ZoneOffset.UTC);
 
-    private static final DeviceRgb HEADER_BG   = new DeviceRgb(37, 99, 235);   // blue-600
-    private static final DeviceRgb TABLE_HEADER = new DeviceRgb(248, 250, 252); // slate-50
-    private static final DeviceRgb BORDER_COLOR = new DeviceRgb(226, 232, 240); // slate-200
-    private static final DeviceRgb MUTED_TEXT   = new DeviceRgb(100, 116, 139); // slate-500
+    private static final DeviceRgb HEADER_BG   = new DeviceRgb(37, 99, 235);
+    private static final DeviceRgb TABLE_HEADER = new DeviceRgb(248, 250, 252);
+    private static final DeviceRgb BORDER_COLOR = new DeviceRgb(226, 232, 240);
+    private static final DeviceRgb MUTED_TEXT   = new DeviceRgb(100, 116, 139);
 
     private final BusinessInvoiceRepository invoiceRepository;
     private final BusinessInvoiceItemRepository itemRepository;
     private final CustomerService customerService;
+    private final SubscriptionRepository subscriptionRepository;
+    private final UsageService usageService;
 
-    // ── Public API ────────────────────────────────────────────────────────────
-
-    /**
-     * Generates a PDF for the given business invoice and returns it as bytes.
-     * Throws ResourceException if the invoice does not exist.
-     */
     @Transactional(readOnly = true)
     public byte[] generatePdf(Long invoiceId) {
         BusinessInvoice invoice = invoiceRepository.findById(invoiceId)
@@ -88,21 +69,56 @@ public class BusinessInvoicePdfService {
 
         log.info("Generating PDF for businessInvoice={}", invoice.getInvoiceNumber());
 
+        byte[] pdf;
         try {
-            byte[] pdf = buildPdf(invoice, items, customer);
+            pdf = buildPdf(invoice, items, customer);
             log.info("PDF generated — invoiceNumber={}, bytes={}", invoice.getInvoiceNumber(), pdf.length);
-            return pdf;
         } catch (Exception e) {
             log.error("PDF generation failed for invoiceId={}: {}", invoiceId, e.getMessage(), e);
             throw ResourceException.invalid("PDF generation failed: " + e.getMessage());
         }
+
+        recordStorageUsageAsync(pdf.length);
+
+        return pdf;
     }
 
-    // ── PDF construction ──────────────────────────────────────────────────────
+    @Async
+    public void recordStorageUsageAsync(long fileSizeBytes) {
+        try {
+            Long tenantId = TenantContextHolder.getTenantId();
+            if (tenantId == null) {
+                log.warn("No tenant context — skipping storage recording for business invoice");
+                return;
+            }
+
+            Subscription subscription = subscriptionRepository
+                    .findFirstByStatusIn(java.util.List.of(
+                            com.mtbs.shared.enums.billing.SubscriptionStatus.ACTIVE,
+                            com.mtbs.shared.enums.billing.SubscriptionStatus.TRIALING))
+                    .orElse(null);
+
+            if (subscription == null) {
+                log.warn("No active subscription for tenantId={} — skipping storage recording", tenantId);
+                return;
+            }
+
+            usageService.recordStorageUsage(
+                    tenantId,
+                    subscription.getId(),
+                    fileSizeBytes,
+                    subscription.getCurrentPeriodStart(),
+                    subscription.getCurrentPeriodEnd()
+            );
+            log.debug("Storage usage recorded for business invoice, tenantId={}, bytes={}", tenantId, fileSizeBytes);
+        } catch (Exception e) {
+            log.error("Failed to record storage usage for business invoice: {}", e.getMessage(), e);
+        }
+    }
 
     private byte[] buildPdf(BusinessInvoice invoice,
-                             List<BusinessInvoiceItem> items,
-                             Customer customer) throws Exception {
+                           List<BusinessInvoiceItem> items,
+                           Customer customer) throws Exception {
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PdfWriter writer  = new PdfWriter(baos);
@@ -113,24 +129,15 @@ public class BusinessInvoicePdfService {
         PdfFont regular = PdfFontFactory.createFont("Helvetica");
         PdfFont bold    = PdfFontFactory.createFont("Helvetica-Bold");
 
-        // ── Header bar ────────────────────────────────────────────────────────
         addHeader(document, invoice, bold, regular);
-
-        // ── Bill To + Invoice Meta ────────────────────────────────────────────
         addBillingSection(document, invoice, customer, bold, regular);
-
-        // ── Line items table ──────────────────────────────────────────────────
         addItemsTable(document, items, bold, regular);
-
-        // ── Totals ────────────────────────────────────────────────────────────
         addTotals(document, invoice, bold, regular);
 
-        // ── Notes ─────────────────────────────────────────────────────────────
         if (invoice.getNotes() != null && !invoice.getNotes().isBlank()) {
             addNotes(document, invoice.getNotes(), bold, regular);
         }
 
-        // ── Footer ────────────────────────────────────────────────────────────
         addFooter(document, invoice, regular);
 
         document.close();
@@ -139,12 +146,10 @@ public class BusinessInvoicePdfService {
 
     private void addHeader(Document document, BusinessInvoice invoice,
                            PdfFont bold, PdfFont regular) {
-        // Full-width header table: company area | invoice title area
         Table headerTable = new Table(UnitValue.createPercentArray(new float[]{60, 40}))
                 .setWidth(UnitValue.createPercentValue(100))
                 .setMarginBottom(20);
 
-        // Left: "TAX INVOICE" label
         Cell titleCell = new Cell()
                 .add(new Paragraph("TAX INVOICE")
                         .setFont(bold).setFontSize(22)
@@ -157,7 +162,6 @@ public class BusinessInvoicePdfService {
                 .setPadding(16);
         headerTable.addCell(titleCell);
 
-        // Right: invoice date and due date
         String invoiceDate = formatInstant(invoice.getCreatedAt());
         String dueDate     = invoice.getDueDate() != null
                 ? formatInstant(invoice.getDueDate()) : "—";
@@ -189,7 +193,6 @@ public class BusinessInvoicePdfService {
                 .setWidth(UnitValue.createPercentValue(100))
                 .setMarginBottom(20);
 
-        // Bill To
         StringBuilder billTo = new StringBuilder();
         billTo.append(customer.getName()).append("\n");
         if (customer.getEmail()   != null) billTo.append(customer.getEmail()).append("\n");
@@ -206,7 +209,6 @@ public class BusinessInvoicePdfService {
                 .setPaddingRight(12);
         billingTable.addCell(billToCell);
 
-        // Status badge
         Cell statusCell = new Cell()
                 .add(new Paragraph("STATUS").setFont(bold).setFontSize(9)
                         .setFontColor(MUTED_TEXT).setMarginBottom(4))
@@ -228,12 +230,10 @@ public class BusinessInvoicePdfService {
 
     private void addItemsTable(Document document, List<BusinessInvoiceItem> items,
                                PdfFont bold, PdfFont regular) {
-        // Columns: Description | Qty | Unit price | Tax% | Tax amount | Total
         Table table = new Table(UnitValue.createPercentArray(new float[]{38, 8, 14, 8, 14, 18}))
                 .setWidth(UnitValue.createPercentValue(100))
                 .setMarginBottom(16);
 
-        // Header row
         String[] headers = {"Description", "Qty", "Unit price", "Tax %", "Tax", "Total"};
         for (String h : headers) {
             table.addHeaderCell(new Cell()
@@ -246,7 +246,6 @@ public class BusinessInvoicePdfService {
                     .setPadding(7));
         }
 
-        // Data rows
         for (BusinessInvoiceItem item : items) {
             table.addCell(itemCell(item.getDescription(), regular, TextAlignment.LEFT));
             table.addCell(itemCell(item.getQuantity().toPlainString(), regular, TextAlignment.CENTER));
@@ -261,21 +260,18 @@ public class BusinessInvoicePdfService {
 
     private void addTotals(Document document, BusinessInvoice invoice,
                            PdfFont bold, PdfFont regular) {
-        // Right-aligned totals block: 60% spacer + 40% totals
         Table totalsTable = new Table(UnitValue.createPercentArray(new float[]{60, 40}))
                 .setWidth(UnitValue.createPercentValue(100))
                 .setMarginBottom(20);
 
         totalsTable.addCell(new Cell().setBorder(Border.NO_BORDER));
 
-        // Totals column
         Table innerTotals = new Table(UnitValue.createPercentArray(new float[]{50, 50}))
                 .setWidth(UnitValue.createPercentValue(100));
 
         addTotalRow(innerTotals, "Subtotal", fmt(invoice.getSubtotal()), regular, false);
         addTotalRow(innerTotals, "Tax",      fmt(invoice.getTaxAmount()), regular, false);
 
-        // Divider
         innerTotals.addCell(new Cell(1, 2)
                 .setBorderTop(new SolidBorder(BORDER_COLOR, 0.5f))
                 .setBorderBottom(Border.NO_BORDER)
@@ -317,8 +313,6 @@ public class BusinessInvoicePdfService {
                 .setTextAlignment(TextAlignment.CENTER));
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
-
     private Cell itemCell(String text, PdfFont font, TextAlignment align) {
         return new Cell()
                 .add(new Paragraph(text).setFont(font).setFontSize(9))
@@ -331,7 +325,7 @@ public class BusinessInvoicePdfService {
     }
 
     private void addTotalRow(Table table, String label, String value,
-                              PdfFont font, boolean highlight) {
+                             PdfFont font, boolean highlight) {
         Color textColor = highlight ? HEADER_BG : ColorConstants.BLACK;
         float fontSize = highlight ? 12f : 10f;
 

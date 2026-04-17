@@ -23,6 +23,9 @@ public class UsageRecord extends AuditableEntity {
     @Column(name = "subscription_id", nullable = false)
     private Long subscriptionId;
 
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "metric_type", nullable = false, length = 50)
     private UsageMetric metricType;
@@ -30,6 +33,14 @@ public class UsageRecord extends AuditableEntity {
     @Column(nullable = false)
     @Builder.Default
     private Long quantity = 0L;
+
+    @Builder.Default
+    @Column(name = "value_bytes", nullable = false)
+    private Long valueBytes = 0L;
+
+    @Column(name = "is_billed", nullable = false)
+    @Builder.Default
+    private Boolean isBilled = false;
 
     @Column(name = "recorded_at", nullable = false)
     @Builder.Default

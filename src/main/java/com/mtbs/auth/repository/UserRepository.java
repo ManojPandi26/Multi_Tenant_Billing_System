@@ -20,6 +20,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     long countByStatus(Status status);
 
+    long countByDeletedFalseAndStatus(Status status);
+
     java.util.List<User> findByRoleId(Long roleId);
 
     // for limiting

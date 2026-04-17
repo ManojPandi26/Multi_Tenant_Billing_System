@@ -7,17 +7,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.util.List;
+import java.time.Instant;
 
-/**
- * Combines plan limits with current usage counts.
- * Used by GET /api/usage/limits to let the frontend
- * render progress bars and show remaining quota.
- *
- * usagePercent: 0–100. -1 means unlimited.
- * limit: -1 means unlimited.
- * current: actual count for the current billing period.
- */
 @Getter
 @Setter
 @Builder
@@ -26,21 +17,23 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class UsageLimitsResponse {
 
-    private boolean unlimited;
-    private List<MetricLimit> metrics;
+    private long apiCallsUsed;
+    private long apiCallsLimit;
+    private boolean apiCallsUnlimited;
+    private double apiCallsUsagePercent;
 
-    @Getter
-    @Setter
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class MetricLimit {
-        private String metric;       // e.g. "ACTIVE_USERS", "API_CALLS"
-        private String displayName;  // e.g. "Active users"
-        private long current;        // current usage count
-        private long limit;          // plan limit (-1 = unlimited)
-        private int usagePercent;    // 0–100, or -1 if unlimited
-        private boolean exceeded;    // true if current >= limit and not unlimited
-        private boolean warning;     // true if usagePercent >= 80
-    }
+    private long activeUsersCount;
+    private long usersLimit;
+    private boolean usersUnlimited;
+    private double usersUsagePercent;
+
+    private long storageUsedBytes;
+    private double storageUsedGb;
+    private double storageLimitGb;
+    private boolean storageUnlimited;
+    private double storageUsagePercent;
+
+    private Instant periodStart;
+    private Instant periodEnd;
+    private String planName;
 }

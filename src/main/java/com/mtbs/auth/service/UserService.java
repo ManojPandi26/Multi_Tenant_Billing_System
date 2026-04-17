@@ -16,6 +16,7 @@ import com.mtbs.shared.util.SecurityUtils;
 import com.mtbs.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -56,6 +57,7 @@ public class UserService {
         return userMapper.toResponseWithRole(user);
     }
 
+    @CacheEvict(value = "dashboard", allEntries = true)
     public UserResponse createUser(CreateUserRequest request) {
         log.info("Delegating user creation: {}", request.getEmail());
         planLimitService.enforceUserLimit();
@@ -102,6 +104,7 @@ public class UserService {
         return userMapper.toResponseWithRole(user);
     }
 
+    @CacheEvict(value = "dashboard", allEntries = true)
     public void deleteUser(Long userId) {
         log.info("Delegating user deletion: {}", userId);
         Long currentUserId = SecurityUtils.getCurrentUserId();
