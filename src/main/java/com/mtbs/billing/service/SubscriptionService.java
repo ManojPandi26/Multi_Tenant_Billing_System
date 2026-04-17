@@ -30,6 +30,7 @@ import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
@@ -165,6 +166,7 @@ public class SubscriptionService {
      *
      * @param invoiceId the invoice that was just paid
      */
+    @CacheEvict(value = "dashboard", allEntries = true)
     @Transactional
     public void activateUpgradeAfterPayment(Long invoiceId) {
         Subscription subscription = subscriptionRepository
@@ -231,6 +233,7 @@ public class SubscriptionService {
      *
      * Rejects FREE → FREE downgrade attempts.
      */
+    @CacheEvict(value = "dashboard", allEntries = true)
     @Transactional
     public SubscriptionResponse downgradeToFree(DowngradeRequest request) {
         Subscription subscription = requireActiveOrTrialing();
@@ -529,6 +532,7 @@ public class SubscriptionService {
      * Called by SubscriptionExpiryJob when a scheduled downgrade's period expires.
      * Switches planId to the scheduled FREE plan and resets to a 1-year period.
      */
+    @CacheEvict(value = "dashboard", allEntries = true)
     @Transactional
     public void executeScheduledDowngrade(Long subscriptionId) {
         Subscription sub = subscriptionRepository.findById(subscriptionId)
@@ -599,6 +603,7 @@ public class SubscriptionService {
     }
 
     /** Called by SubscriptionCancelJob when cancelAtPeriodEnd=true and period has ended. */
+    @CacheEvict(value = "dashboard", allEntries = true)
     @Transactional
     public void executeScheduledCancellation(Long subscriptionId) {
         Subscription sub = subscriptionRepository.findById(subscriptionId)

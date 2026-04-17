@@ -6,6 +6,8 @@ import com.mtbs.business.product.dto.UpdateProductRequest;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.business.product.service.ProductService;
 import com.mtbs.shared.dto.common.PageResponse;
+import com.mtbs.shared.annotation.TrackUsage;
+import com.mtbs.shared.enums.billing.UsageMetric;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -42,6 +44,7 @@ public class ProductController {
     // ── POST /api/products ────────────────────────────────────────────────────
 
     @PostMapping
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
     @Operation(
         summary = "Create a product",
@@ -113,6 +116,7 @@ public class ProductController {
     // ── PUT /api/products/{id} ────────────────────────────────────────────────
 
     @PutMapping("/{id}")
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
     @Operation(
         summary = "Update a product",

@@ -9,6 +9,19 @@ import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
 
+/**
+ * @deprecated UsageSummary is deprecated. Use {@link UsageRecord} instead.
+ * 
+ * Migration notes:
+ * - All usage data is now stored in UsageRecord
+ * - UsageRecord.quantity = API_CALLS count
+ * - UsageRecord.valueBytes = STORAGE_GB byte accumulation
+ * - UsageRecord.isBilled = billing status (replaces UsageSummary.isBilled)
+ * - ACTIVE_USERS is a live count from UserRepository, never stored
+ * 
+ * This entity will be removed in a future release.
+ */
+@Deprecated
 @Entity
 @Table(name = "usage_summaries")
 @SQLDelete(sql = "UPDATE usage_summaries SET deleted = true, deleted_at = NOW() WHERE id = ? AND version = ?")

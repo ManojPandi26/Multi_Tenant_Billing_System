@@ -7,6 +7,8 @@ import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.shared.dto.common.PageResponse;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.business.invoice.service.BusinessInvoiceService;
+import com.mtbs.shared.annotation.TrackUsage;
+import com.mtbs.shared.enums.billing.UsageMetric;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -43,6 +45,7 @@ public class BusinessInvoiceController {
     // ── POST /api/business-invoices ───────────────────────────────────────────
 
     @PostMapping
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
         summary = "Create an invoice",
         description = "Creates a DRAFT invoice for a customer with one or more line items. " +
@@ -99,6 +102,7 @@ public class BusinessInvoiceController {
     // ── POST /api/business-invoices/{id}/items ────────────────────────────────
 
     @PostMapping("/{id}/items")
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
         summary = "Add a line item",
         description = "Adds a single line item to a DRAFT invoice. " +
@@ -136,6 +140,7 @@ public class BusinessInvoiceController {
     // ── POST /api/business-invoices/{id}/finalize ─────────────────────────────
 
     @PostMapping("/{id}/finalize")
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
         summary = "Finalize an invoice",
         description = "Transitions a DRAFT invoice to OPEN status. " +
@@ -168,6 +173,7 @@ public class BusinessInvoiceController {
     // ── POST /api/business-invoices/{id}/void ─────────────────────────────────
 
     @PostMapping("/{id}/void")
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
         summary = "Void an invoice",
         description = "Marks a DRAFT or OPEN invoice as VOID. " +
@@ -183,6 +189,7 @@ public class BusinessInvoiceController {
     // ── GET /api/business-invoices/{id}/download ──────────────────────────────
 
     @GetMapping("/{id}/download")
+    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
             summary = "Download invoice as PDF",
             description = "Generates and streams the invoice as a PDF file. " +

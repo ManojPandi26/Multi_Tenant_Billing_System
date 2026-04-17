@@ -2,11 +2,15 @@ package com.mtbs.billing.controller;
 
 import com.mtbs.billing.dto.UsageLimitsResponse;
 import com.mtbs.billing.dto.UsageResponse;
-import com.mtbs.shared.dto.common.ApiResponse;
-import com.mtbs.tenant.dto.plan.PlanLimits;
+import com.mtbs.billing.entity.Subscription;
+import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.billing.service.UsageService;
-import com.mtbs.tenant.service.PlanLimitService;
+import com.mtbs.shared.dto.common.ApiResponse;
+import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.enums.billing.UsageMetric;
+import com.mtbs.shared.util.SecurityUtils;
+import com.mtbs.tenant.entity.Plan;
+import com.mtbs.tenant.repository.PlanRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -20,7 +24,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -31,31 +34,27 @@ import java.util.List;
 public class UsageController {
 
     private final UsageService usageService;
-    private final PlanLimitService planLimitService;
+    private final SubscriptionRepository subscriptionRepository;
+    private final PlanRepository planRepository;
 
-    // ── GET /api/usage/current ────────────────────────────────────────────────
-
-    @GetMapping("/current")
+    @GetMapping("/limits")
     @Operation(
-            summary = "Get current period usage",
-            description = "Returns usage counts for all metrics (API_CALLS, ACTIVE_USERS, " +
-                    "STORAGE_GB) for the current billing period, " +
-                    "along with the plan limit for each. " +
-                    "Returns an empty list if no active subscription exists."
+            summary = "Get real-time usage vs plan limits for current billing period",
+            description = "Returns current usage counts and limits for API calls, active users, and storage. "
+                    + "ACTIVE_USERS is a live count. Data is always fresh."
     )
-    public ResponseEntity<ApiResponse<List<UsageResponse>>> getCurrentUsage() {
-        List<UsageResponse> response = usageService.getCurrentUsage();
-        return ResponseEntity.ok(ApiResponse.success(response, "Current usage fetched successfully"));
+    public ResponseEntity<ApiResponse<UsageLimitsResponse>> getUsageLimits() {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        UsageLimitsResponse response = usageService.getLimitsForCurrentPeriod(tenantId);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
-
-    // ── GET /api/usage ────────────────────────────────────────────────────────
 
     @GetMapping
     @Operation(
             summary = "Get usage for a specific period",
-            description = "Returns aggregated usage counts for a custom date range. " +
-                    "Both start and end must be ISO-8601 instants (e.g. 2026-01-01T00:00:00Z). " +
-                    "Returns an empty list if no active subscription exists."
+            description = "Returns aggregated usage counts for API_CALLS and STORAGE_GB metrics. "
+                    + "ACTIVE_USERS is included as a live count. "
+                    + "Both start and end must be ISO-8601 instants."
     )
     public ResponseEntity<ApiResponse<List<UsageResponse>>> getUsageForPeriod(
             @Parameter(description = "Period start (ISO-8601, e.g. 2026-01-01T00:00:00Z)")
@@ -69,62 +68,40 @@ public class UsageController {
                     .body(ApiResponse.error("start must be before end"));
         }
 
-        List<UsageResponse> response = usageService.getUsageForPeriod(start, end);
-        return ResponseEntity.ok(ApiResponse.success(response, "Usage for period fetched successfully"));
-    }
+        Long tenantId = SecurityUtils.getCurrentTenantId();
 
-    // ── GET /api/usage/limits ─────────────────────────────────────────────────
+        List<UsageResponse> responses = usageService.getUsageForPeriod(start, end);
 
-    @GetMapping("/limits")
-    @Operation(
-            summary = "Get plan limits with current usage",
-            description = "Returns the current plan's limits for each metric alongside " +
-                    "the current usage count and usage percentage. " +
-                    "Used by the frontend to render quota progress bars. " +
-                    "usagePercent=-1 and limit=-1 means the metric is unlimited. " +
-                    "warning=true when usagePercent >= 80. " +
-                    "exceeded=true when current >= limit (and not unlimited)."
-    )
-    public ResponseEntity<ApiResponse<UsageLimitsResponse>> getUsageLimits() {
-        PlanLimits limits = planLimitService.getCurrentLimits();
-        List<UsageResponse> currentUsage = usageService.getCurrentUsage();
-
-        List<UsageLimitsResponse.MetricLimit> metrics = new ArrayList<>();
-
-        for (UsageResponse usage : currentUsage) {
-            long limit = usage.getLimit();
-            long current = usage.getCurrent();
-
-            int percent = (limit == -1L) ? -1 : (limit > 0 ? (int) ((current * 100) / limit) : 0);
-            boolean exceeded = limit != -1L && current >= limit;
-            boolean warning = percent >= 80 && percent < 100;
-
-            metrics.add(UsageLimitsResponse.MetricLimit.builder()
-                    .metric(usage.getMetric().name())
-                    .displayName(toDisplayName(usage.getMetric()))
-                    .current(current)
-                    .limit(limit)
-                    .usagePercent(percent)
-                    .exceeded(exceeded)
-                    .warning(warning)
-                    .build());
+        long activeUsersCount = usageService.getActiveUserCount(tenantId);
+        Long usersLimit = null;
+        
+        Subscription subscription = subscriptionRepository
+                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
+                .orElse(null);
+        if (subscription != null) {
+            Plan plan = planRepository.findById(subscription.getPlanId()).orElse(null);
+            if (plan != null) {
+                usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers().longValue() : null;
+            }
         }
+        
+        Long remaining = null;
+        Double percentUsed = null;
+        if (usersLimit != null && usersLimit > 0) {
+            remaining = Math.max(usersLimit - activeUsersCount, 0L);
+            percentUsed = Math.round((activeUsersCount * 100.0 / usersLimit) * 10.0) / 10.0;
+        }
+        
+        responses.add(UsageResponse.builder()
+                .metric(UsageMetric.ACTIVE_USERS)
+                .current(activeUsersCount)
+                .limit(usersLimit)
+                .remaining(remaining)
+                .percentUsed(percentUsed)
+                .periodStart(start)
+                .periodEnd(end)
+                .build());
 
-        UsageLimitsResponse response = UsageLimitsResponse.builder()
-                .unlimited(limits.isUnlimited())
-                .metrics(metrics)
-                .build();
-
-        return ResponseEntity.ok(ApiResponse.success(response, "Usage limits fetched successfully"));
-    }
-
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    private String toDisplayName(UsageMetric metric) {
-        return switch (metric) {
-            case API_CALLS     -> "API calls this month";
-            case ACTIVE_USERS  -> "Active users";
-            case STORAGE_GB    -> "Storage used (GB)";
-        };
+        return ResponseEntity.ok(ApiResponse.success(responses, "Usage for period fetched successfully"));
     }
 }
