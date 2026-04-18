@@ -62,4 +62,28 @@ public interface UsageRecordRepository extends JpaRepository<UsageRecord, Long> 
     int markAsBilled(@Param("tenantId") Long tenantId,
                      @Param("metricType") UsageMetric metricType,
                      @Param("start") Instant start);
+
+    @Query(value = "SELECT DATE(created_at) as date, COUNT(*) as count " +
+           "FROM usage_records " +
+           "WHERE tenant_id = :tenantId AND metric_type = :metric " +
+           "AND created_at >= :startDate " +
+           "AND deleted = false " +
+           "GROUP BY DATE(created_at) " +
+           "ORDER BY date", nativeQuery = true)
+    List<Object[]> countByMetricGroupedByDate(
+            @Param("tenantId") Long tenantId,
+            @Param("metric") String metric,
+            @Param("startDate") Instant startDate);
+
+    @Query(value = "SELECT DATE(created_at) as date, SUM(value_bytes) as total_bytes " +
+           "FROM usage_records " +
+           "WHERE tenant_id = :tenantId AND metric_type = :metric " +
+           "AND created_at >= :startDate " +
+           "AND deleted = false " +
+           "GROUP BY DATE(created_at) " +
+           "ORDER BY date", nativeQuery = true)
+    List<Object[]> sumStorageByMetricGroupedByDate(
+            @Param("tenantId") Long tenantId,
+            @Param("metric") String metric,
+            @Param("startDate") Instant startDate);
 }

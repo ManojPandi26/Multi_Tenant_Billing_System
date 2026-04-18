@@ -23,4 +23,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     List<Invoice> findAllByStatusAndDueDateBefore(InvoiceStatus status, Instant date);
 
     long countByStatus(InvoiceStatus status);
+
+    Optional<Invoice> findTopBySubscriptionIdOrderByCreatedAtDesc(Long subscriptionId);
+
+    List<Invoice> findBySubscriptionIdOrderByCreatedAtDesc(Long subscriptionId);
 }
