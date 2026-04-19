@@ -1,6 +1,7 @@
 package com.mtbs.billing.service;
 
 import com.mtbs.auth.repository.UserRepository;
+import com.mtbs.billing.dto.TenantBillingDashboard;
 import com.mtbs.billing.dto.UsageLimitsResponse;
 import com.mtbs.billing.dto.UsageResponse;
 import com.mtbs.billing.entity.Subscription;
@@ -17,10 +18,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -65,11 +71,11 @@ public class UsageService {
         Subscription subscription = subscriptionRepository
                 .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
                 .orElse(null);
-        
+
         if (subscription == null) {
             return List.of();
         }
-        
+
         return getUsageForPeriod(subscription.getCurrentPeriodStart(), subscription.getCurrentPeriodEnd());
     }
 
@@ -78,17 +84,17 @@ public class UsageService {
         if (tenantId == null) {
             return List.of();
         }
-        
+
         List<UsageResponse> responses = new ArrayList<>();
-        
+
         Subscription subscription = subscriptionRepository
                 .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
                 .orElse(null);
-        
+
         Long apiCallsLimit = null;
         Long storageLimitGb = null;
         Long usersLimit = null;
-        
+
         if (subscription != null) {
             Plan plan = planRepository.findById(subscription.getPlanId()).orElse(null);
             if (plan != null) {
@@ -97,7 +103,7 @@ public class UsageService {
                 usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers().longValue() : null;
             }
         }
-        
+
         long apiCallsCount = 0L;
         List<UsageRecord> apiCallRecords = usageRecordRepository
                 .findByTenantIdAndMetricTypeAndBillingPeriodStartBetween(
@@ -105,9 +111,9 @@ public class UsageService {
         for (UsageRecord record : apiCallRecords) {
             apiCallsCount += record.getQuantity();
         }
-        
+
         responses.add(buildUsageResponse(UsageMetric.API_CALLS, apiCallsCount, apiCallsLimit, start, end));
-        
+
         long storageBytes = 0L;
         List<UsageRecord> storageRecords = usageRecordRepository
                 .findByTenantIdAndMetricTypeAndBillingPeriodStartBetween(
@@ -115,22 +121,22 @@ public class UsageService {
         for (UsageRecord record : storageRecords) {
             storageBytes += record.getValueBytes();
         }
-        
+
         long storageBytesToGb = storageBytes;
         responses.add(buildStorageUsageResponse(UsageMetric.STORAGE_GB, storageBytesToGb, storageLimitGb, start, end));
-        
+
         return responses;
     }
-    
+
     private UsageResponse buildUsageResponse(UsageMetric metric, long current, Long limit, Instant start, Instant end) {
         Long remaining = null;
         Double percentUsed = null;
-        
+
         if (limit != null && limit > 0) {
             remaining = Math.max(limit - current, 0L);
             percentUsed = Math.round((current * 100.0 / limit) * 10.0) / 10.0;
         }
-        
+
         return UsageResponse.builder()
                 .metric(metric)
                 .current(current)
@@ -141,17 +147,17 @@ public class UsageService {
                 .periodEnd(end)
                 .build();
     }
-    
+
     private UsageResponse buildStorageUsageResponse(UsageMetric metric, long storageBytes, Long storageLimitGb, Instant start, Instant end) {
         Long remaining = null;
         Double percentUsed = null;
-        
+
         if (storageLimitGb != null && storageLimitGb > 0) {
             long storageGb = storageBytes / (1024 * 1024 * 1024);
             remaining = Math.max(storageLimitGb - storageGb, 0L);
             percentUsed = Math.round((storageGb * 100.0 / storageLimitGb) * 10.0) / 10.0;
         }
-        
+
         return UsageResponse.builder()
                 .metric(metric)
                 .current(storageBytes)
@@ -165,17 +171,17 @@ public class UsageService {
 
     public List<UsageRecord> getUnbilledUsageRecords(Long tenantId, Instant periodStart) {
         List<UsageRecord> unbilledRecords = new ArrayList<>();
-        
+
         List<UsageRecord> apiCallRecords = usageRecordRepository
                 .findByTenantIdAndMetricTypeAndBillingPeriodStartBetweenAndIsBilledFalse(
                         tenantId, UsageMetric.API_CALLS, periodStart, Instant.now());
         unbilledRecords.addAll(apiCallRecords);
-        
+
         List<UsageRecord> storageRecords = usageRecordRepository
                 .findByTenantIdAndMetricTypeAndBillingPeriodStartBetweenAndIsBilledFalse(
                         tenantId, UsageMetric.STORAGE_GB, periodStart, Instant.now());
         unbilledRecords.addAll(storageRecords);
-        
+
         return unbilledRecords;
     }
 
@@ -195,6 +201,7 @@ public class UsageService {
                             .limit(0)
                             .remaining(0)
                             .usagePercent(0.0)
+                            .remainingPercent(100.0)
                             .unlimited(false)
                             .build())
                     .users(UsageLimitsResponse.UsersUsage.builder()
@@ -202,14 +209,17 @@ public class UsageService {
                             .limit(0)
                             .remaining(0)
                             .usagePercent(0.0)
+                            .remainingPercent(100.0)
                             .unlimited(false)
                             .build())
                     .storage(UsageLimitsResponse.StorageUsage.builder()
                             .usedBytes(0)
-                            .usedGb(0.0)
-                            .limitGb(0)
-                            .remainingGb(0.0)
+                            .usedMb(BigDecimal.ZERO)
+                            .usedGb(BigDecimal.ZERO)
+                            .limitGb(BigDecimal.ZERO)
+                            .remainingGb(BigDecimal.ZERO)
                             .usagePercent(0.0)
+                            .remainingPercent(100.0)
                             .unlimited(false)
                             .build())
                     .build();
@@ -224,20 +234,37 @@ public class UsageService {
         long apiCallsLimit = plan.getMaxApiCallsPerMonth() != null ? plan.getMaxApiCallsPerMonth() : -1L;
         boolean apiCallsUnlimited = apiCallsLimit == -1L;
         long apiCallsRemaining = apiCallsUnlimited ? 0 : Math.max(0, apiCallsLimit - apiCallsUsed);
-        double apiCallsUsagePercent = apiCallsLimit > 0 ? (apiCallsUsed * 100.0 / apiCallsLimit) : 0.0;
+        double apiCallsUsagePercent = apiCallsLimit > 0
+                ? Math.round((apiCallsUsed * 100.0 / apiCallsLimit) * 100.0) / 100.0 : 0.0;
+        double apiCallsRemainingPercent = Math.round((100.0 - apiCallsUsagePercent) * 100.0) / 100.0;
 
         long activeUsersCount = getActiveUserCount(tenantId);
         long usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers() : -1L;
         boolean usersUnlimited = usersLimit == -1L;
         long usersRemaining = usersUnlimited ? 0 : Math.max(0, usersLimit - activeUsersCount);
-        double usersUsagePercent = usersLimit > 0 ? (activeUsersCount * 100.0 / usersLimit) : 0.0;
+        double usersUsagePercent = usersLimit > 0
+                ? Math.round((activeUsersCount * 100.0 / usersLimit) * 100.0) / 100.0 : 0.0;
+        double usersRemainingPercent = Math.round((100.0 - usersUsagePercent) * 100.0) / 100.0;
 
         long storageUsedBytes = getStorageBytes(tenantId, periodStart);
-        double storageUsedGb = Math.round((storageUsedBytes / (1024.0 * 1024.0 * 1024.0)) * 100.0) / 100.0;
+        BigDecimal storageUsedBytesBd = BigDecimal.valueOf(storageUsedBytes);
+        BigDecimal bytesPerMb = BigDecimal.valueOf(1024L * 1024L);
+        BigDecimal bytesPerGb = BigDecimal.valueOf(1024L * 1024L * 1024L);
+        
+        BigDecimal storageUsedMb = storageUsedBytesBd.divide(bytesPerMb, 6, RoundingMode.HALF_UP);
+        BigDecimal storageUsedGb = storageUsedBytesBd.divide(bytesPerGb, 6, RoundingMode.HALF_UP);
+        
         long storageLimitGb = plan.getMaxStorageGb() != null ? plan.getMaxStorageGb() : -1L;
         boolean storageUnlimited = storageLimitGb == -1L;
-        double storageRemainingGb = storageUnlimited ? 0.0 : Math.max(0.0, storageLimitGb - storageUsedGb);
-        double storageUsagePercent = storageLimitGb > 0 ? (storageUsedGb * 100.0 / storageLimitGb) : 0.0;
+        
+        BigDecimal storageLimitGbBd = BigDecimal.valueOf(storageLimitGb);
+        BigDecimal storageRemainingGb = storageUnlimited 
+                ? BigDecimal.ZERO 
+                : storageLimitGbBd.subtract(storageUsedGb).setScale(4, RoundingMode.HALF_UP);
+        
+        double storageUsagePercent = storageLimitGb > 0
+                ? Math.round((storageUsedGb.doubleValue() * 100.0 / storageLimitGb) * 100.0) / 100.0 : 0.0;
+        double storageRemainingPercent = Math.round((100.0 - storageUsagePercent) * 100.0) / 100.0;
 
         return UsageLimitsResponse.builder()
                 .apiCalls(UsageLimitsResponse.ApiCallsUsage.builder()
@@ -245,6 +272,7 @@ public class UsageService {
                         .limit(apiCallsUnlimited ? 0 : apiCallsLimit)
                         .remaining(apiCallsRemaining)
                         .usagePercent(apiCallsUsagePercent)
+                        .remainingPercent(apiCallsRemainingPercent)
                         .unlimited(apiCallsUnlimited)
                         .build())
                 .users(UsageLimitsResponse.UsersUsage.builder()
@@ -252,73 +280,101 @@ public class UsageService {
                         .limit(usersUnlimited ? 0 : usersLimit)
                         .remaining(usersRemaining)
                         .usagePercent(usersUsagePercent)
+                        .remainingPercent(usersRemainingPercent)
                         .unlimited(usersUnlimited)
                         .build())
                 .storage(UsageLimitsResponse.StorageUsage.builder()
                         .usedBytes(storageUsedBytes)
+                        .usedMb(storageUsedMb)
                         .usedGb(storageUsedGb)
-                        .limitGb(storageUnlimited ? 0 : storageLimitGb)
+                        .limitGb(storageUnlimited ? BigDecimal.ZERO : storageLimitGbBd)
                         .remainingGb(storageRemainingGb)
                         .usagePercent(storageUsagePercent)
+                        .remainingPercent(storageRemainingPercent)
                         .unlimited(storageUnlimited)
                         .build())
                 .periodStart(subscription.getCurrentPeriodStart())
                 .periodEnd(subscription.getCurrentPeriodEnd())
-                .planName(plan.getDisplayName())
                 .build();
     }
 
-    public UsageLimitsResponse.UsageTrends getUsageTrends(Long tenantId, int days) {
+    public TenantBillingDashboard.UsageTrendsData getUsageTrends(Long tenantId, int days) {
         Instant startDate = Instant.now().minus(days, ChronoUnit.DAYS);
 
-        List<UsageLimitsResponse.UsageTrendPoint> apiCalls = fetchEventTrendData(
-                tenantId, "API_CALLS", startDate);
-        List<UsageLimitsResponse.UsageTrendPoint> users = fetchEventTrendData(
-                tenantId, "USER_CREATED", startDate);
-        List<UsageLimitsResponse.StorageTrendPoint> storage = fetchStorageTrendData(
-                tenantId, "STORAGE_GB", startDate);
+        List<TenantBillingDashboard.UsageTrendsData.UsageTrendPoint> apiCalls = fetchEventTrendData(
+                tenantId, "API_CALLS", startDate, days);
+        List<TenantBillingDashboard.UsageTrendsData.UsageTrendPoint> users = fetchEventTrendData(
+                tenantId, "USER_CREATED", startDate, days);
+        List<TenantBillingDashboard.UsageTrendsData.StorageTrendPoint> storage = fetchStorageTrendData(
+                tenantId, "STORAGE_GB", startDate, days);
 
-        return UsageLimitsResponse.UsageTrends.builder()
+        return TenantBillingDashboard.UsageTrendsData.builder()
                 .apiCalls(apiCalls)
                 .users(users)
                 .storage(storage)
-                .days(days)
+                .windowDays(days)
                 .build();
     }
 
-    private List<UsageLimitsResponse.UsageTrendPoint> fetchEventTrendData(
-            Long tenantId, String metric, Instant startDate) {
+    private List<TenantBillingDashboard.UsageTrendsData.UsageTrendPoint> fetchEventTrendData(
+            Long tenantId, String metric, Instant startDate, int days) {
         List<Object[]> results = usageRecordRepository.countByMetricGroupedByDate(
                 tenantId, metric, startDate);
-        List<UsageLimitsResponse.UsageTrendPoint> points = new ArrayList<>();
+
+        LocalDate endDate = LocalDate.now();
+        LocalDate startLocalDate = endDate.minusDays(days - 1);
+        Map<String, Long> dataMap = new LinkedHashMap<>();
+
+        for (LocalDate date = startLocalDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+            dataMap.put(date.toString(), 0L);
+        }
+
         for (Object[] row : results) {
             String date = row[0] != null ? row[0].toString() : null;
             long count = row[1] != null ? ((Number) row[1]).longValue() : 0L;
-            if (date != null) {
-                points.add(UsageLimitsResponse.UsageTrendPoint.builder()
-                        .date(date)
-                        .count(count)
-                        .build());
+            if (date != null && dataMap.containsKey(date)) {
+                dataMap.put(date, count);
             }
+        }
+
+        List<TenantBillingDashboard.UsageTrendsData.UsageTrendPoint> points = new ArrayList<>();
+        for (Map.Entry<String, Long> entry : dataMap.entrySet()) {
+            points.add(TenantBillingDashboard.UsageTrendsData.UsageTrendPoint.builder()
+                    .date(entry.getKey())
+                    .count(entry.getValue())
+                    .build());
         }
         return points;
     }
 
-    private List<UsageLimitsResponse.StorageTrendPoint> fetchStorageTrendData(
-            Long tenantId, String metric, Instant startDate) {
+    private List<TenantBillingDashboard.UsageTrendsData.StorageTrendPoint> fetchStorageTrendData(
+            Long tenantId, String metric, Instant startDate, int days) {
         List<Object[]> results = usageRecordRepository.sumStorageByMetricGroupedByDate(
                 tenantId, metric, startDate);
-        List<UsageLimitsResponse.StorageTrendPoint> points = new ArrayList<>();
+
+        LocalDate endDate = LocalDate.now();
+        LocalDate startLocalDate = endDate.minusDays(days - 1);
+        Map<String, Double> dataMap = new LinkedHashMap<>();
+
+        for (LocalDate date = startLocalDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+            dataMap.put(date.toString(), 0.0);
+        }
+
         for (Object[] row : results) {
             String date = row[0] != null ? row[0].toString() : null;
             long totalBytes = row[1] != null ? ((Number) row[1]).longValue() : 0L;
             double usedGb = Math.round((totalBytes / (1024.0 * 1024.0 * 1024.0)) * 100.0) / 100.0;
-            if (date != null) {
-                points.add(UsageLimitsResponse.StorageTrendPoint.builder()
-                        .date(date)
-                        .usedGb(usedGb)
-                        .build());
+            if (date != null && dataMap.containsKey(date)) {
+                dataMap.put(date, usedGb);
             }
+        }
+
+        List<TenantBillingDashboard.UsageTrendsData.StorageTrendPoint> points = new ArrayList<>();
+        for (Map.Entry<String, Double> entry : dataMap.entrySet()) {
+            points.add(TenantBillingDashboard.UsageTrendsData.StorageTrendPoint.builder()
+                    .date(entry.getKey())
+                    .usedGb(entry.getValue())
+                    .build());
         }
         return points;
     }

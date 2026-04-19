@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import com.mtbs.business.invoice.entity.BusinessInvoice;
 
 @Repository
 public interface BusinessInvoiceRepository extends JpaRepository<BusinessInvoice, Long> {
@@ -117,4 +118,31 @@ public interface BusinessInvoiceRepository extends JpaRepository<BusinessInvoice
      */
     @Query("SELECT COUNT(i) FROM BusinessInvoice i")
     long countAllIncludingVoid();
+
+    // ── Revenue summary queries ────────────────────────────────────────────────────────────
+
+    /**
+     * PAID invoices within a date range.
+     */
+    @Query("""
+        SELECT i FROM BusinessInvoice i
+        WHERE i.status     = com.mtbs.shared.enums.billing.InvoiceStatus.PAID
+          AND i.paidAt    >= :from
+          AND i.paidAt    <= :to
+        ORDER BY i.paidAt DESC
+        """)
+    List<BusinessInvoice> findAllPaidBetween(
+            @Param("from") Instant from,
+            @Param("to")   Instant to
+    );
+
+    /**
+     * All PAID invoices.
+     */
+    @Query("""
+        SELECT i FROM BusinessInvoice i
+        WHERE i.status = com.mtbs.shared.enums.billing.InvoiceStatus.PAID
+        ORDER BY i.paidAt DESC
+        """)
+    List<BusinessInvoice> findAllPaid();
 }

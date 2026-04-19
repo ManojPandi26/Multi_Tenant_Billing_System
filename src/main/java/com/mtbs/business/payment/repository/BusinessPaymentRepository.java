@@ -83,4 +83,32 @@ public interface BusinessPaymentRepository extends JpaRepository<BusinessPayment
      * Used internally when detailed payment list is needed for a period.
      */
     List<BusinessPayment> findAllByPaidAtBetween(Instant from, Instant to);
+
+    // ── Payment summary queries ────────────────────────────────────────────────
+
+    /**
+     * All payments with a paidAt timestamp (successful payments).
+     */
+    @Query("""
+        SELECT p FROM BusinessPayment p
+        WHERE p.paidAt IS NOT NULL
+        ORDER BY p.paidAt DESC
+        """)
+    List<BusinessPayment> findAllSuccessful();
+
+    /**
+     * Total count of all payments.
+     */
+    @Query("SELECT COUNT(p) FROM BusinessPayment p")
+    long countAll();
+
+    /**
+     * Sum of all successful payment amounts.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(p.amount), 0)
+        FROM BusinessPayment p
+        WHERE p.paidAt IS NOT NULL
+        """)
+    BigDecimal sumAllSuccessful();
 }

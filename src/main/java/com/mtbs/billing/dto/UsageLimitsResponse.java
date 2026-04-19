@@ -7,8 +7,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 
 @Getter
 @Setter
@@ -21,10 +21,8 @@ public class UsageLimitsResponse {
     private ApiCallsUsage apiCalls;
     private UsersUsage users;
     private StorageUsage storage;
-    private UsageTrends usageTrends;
     private Instant periodStart;
     private Instant periodEnd;
-    private String planName;
 
     @Getter
     @Setter
@@ -36,6 +34,7 @@ public class UsageLimitsResponse {
         private long limit;
         private long remaining;
         private double usagePercent;
+        private double remainingPercent;
         private boolean unlimited;
     }
 
@@ -49,6 +48,7 @@ public class UsageLimitsResponse {
         private long limit;
         private long remaining;
         private double usagePercent;
+        private double remainingPercent;
         private boolean unlimited;
     }
 
@@ -59,42 +59,12 @@ public class UsageLimitsResponse {
     @AllArgsConstructor
     public static class StorageUsage {
         private long usedBytes;
-        private double usedGb;
-        private double limitGb;
-        private double remainingGb;
+        private BigDecimal usedMb;
+        private BigDecimal usedGb;
+        private BigDecimal limitGb;
+        private BigDecimal remainingGb;
         private double usagePercent;
+        private double remainingPercent;
         private boolean unlimited;
-    }
-
-    @Getter
-    @Setter
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class UsageTrendPoint {
-        private String date;
-        private long count;
-    }
-
-    @Getter
-    @Setter
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class StorageTrendPoint {
-        private String date;
-        private double usedGb;
-    }
-
-    @Getter
-    @Setter
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class UsageTrends {
-        private List<UsageTrendPoint> apiCalls;
-        private List<UsageTrendPoint> users;
-        private List<StorageTrendPoint> storage;
-        private int days;
     }
 }

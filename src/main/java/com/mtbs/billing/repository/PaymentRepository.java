@@ -37,4 +37,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     BigDecimal sumAmountBySubscriptionIdAndStatus(Long subscriptionId, PaymentStatus status);
 
     Optional<Payment> findTopByInvoiceIdInOrderByPaidAtDesc(List<Long> invoiceIds);
+
+    @Query("SELECT AVG(p.amount) FROM Payment p WHERE p.invoiceId IN " +
+           "(SELECT i.id FROM Invoice i WHERE i.subscriptionId = :subscriptionId) AND p.status = :status")
+    BigDecimal avgAmountBySubscriptionIdAndStatus(Long subscriptionId, PaymentStatus status);
+
+    Optional<Payment> findTopByInvoiceIdInOrderByCreatedAtDesc(List<Long> invoiceIds);
 }
