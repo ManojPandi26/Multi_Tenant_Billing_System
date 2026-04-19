@@ -2,12 +2,12 @@ package com.mtbs.auth.service;
 
 import com.mtbs.auth.dto.auth.AuthResponse;
 import com.mtbs.auth.dto.auth.SignupRequest;
+import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.entity.TenantOnboarding;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.tenant.enums.KycStatus;
-import com.mtbs.shared.enums.plan.Plan;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
 import com.mtbs.shared.event.audit.AuditLogEvent;
@@ -101,7 +101,7 @@ public class SignupService {
                 .name(request.getName())
                 .schemaName(schemaName)
                 .slug(provisionalSlug)
-                .planType(Plan.FREE)
+                .planType(PlanType.FREE)
                 .status(Status.PENDING_ONBOARDING)
                 .onboardingStep(0)
                 .ownerEmail(request.getEmail())

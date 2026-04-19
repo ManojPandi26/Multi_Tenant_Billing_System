@@ -4,11 +4,11 @@ import com.mtbs.admin.dto.AdminTenantDetailResponse;
 import com.mtbs.admin.dto.AdminTenantListResponse;
 import com.mtbs.admin.dto.ChangeTenantPlanRequest;
 import com.mtbs.admin.dto.ChangeTenantStatusRequest;
+import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.tenant.mapper.TenantMapper;
-import com.mtbs.shared.enums.plan.Plan;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.event.audit.AuditLogEvent;
 import com.mtbs.shared.enums.audit.AuditAction;
@@ -46,7 +46,7 @@ public class AdminTenantService {
     private final TenantMapper tenantMapper;
 
     @Transactional(readOnly = true)
-    public Page<AdminTenantListResponse> getAllTenants(Status status, Plan planType, Pageable pageable) {
+    public Page<AdminTenantListResponse> getAllTenants(Status status, PlanType planType, Pageable pageable) {
         log.info("Admin fetching all tenants. Filters -> status: {}, planType: {}", status, planType);
 
         Page<Tenant> tenants;

@@ -1,7 +1,7 @@
 package com.mtbs.admin.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.mtbs.shared.enums.plan.Plan;
+import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.shared.enums.auth.Status;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,7 +22,7 @@ public class AdminTenantListResponse {
     private Long id;
     private String name;
     private String schemaName;
-    private Plan planType;
+    private PlanType planType;
     private Status status;
     private long userCount;
     private Instant createdAt;

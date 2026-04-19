@@ -9,7 +9,7 @@ import com.mtbs.shared.dto.common.PageResponse;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.shared.enums.auth.Status;
-import com.mtbs.shared.enums.plan.Plan;
+import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.admin.service.AdminTenantService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -55,7 +55,7 @@ public class AdminTenantController {
             @RequestParam(required = false) Status status,
 
             @Parameter(description = "Filter by plan type")
-            @RequestParam(required = false) Plan planType,
+            @RequestParam(required = false) PlanType planType,
 
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 

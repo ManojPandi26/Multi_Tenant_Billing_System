@@ -1,6 +1,6 @@
 package com.mtbs.admin.dto;
 
-import com.mtbs.shared.enums.plan.Plan;
+import com.mtbs.shared.enums.plan.PlanType;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,5 +16,5 @@ import lombok.Setter;
 public class ChangeTenantPlanRequest {
 
     @NotNull(message = "Plan type is required")
-    private Plan planType;
+    private PlanType planType;
 }
