@@ -54,19 +54,8 @@ public class AuthService {
         TenantContext.setTenantId(tenant.getId());
         TenantContext.setCurrentSchema(tenant.getSchemaName());
         try {
-            AuthResponse response = tenantAuthService.loginInTenantSchema(
+            return tenantAuthService.loginInTenantSchema(
                     request, tenant, ipAddress, deviceInfo);
-
-            // Tell the frontend where to send the user after login
-            if (tenant.getStatus() == Status.PENDING_ONBOARDING) {
-                response.setOnboardingComplete(false);
-                response.setOnboardingStep(tenant.getOnboardingStep());
-            } else {
-                response.setOnboardingComplete(true);
-                response.setOnboardingStep(3);
-            }
-
-            return response;
         } finally {
             TenantContext.clear();
         }

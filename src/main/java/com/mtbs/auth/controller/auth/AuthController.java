@@ -64,7 +64,10 @@ public class AuthController {
     // ── POST /api/auth/login ──────────────────────────────────────────────────
 
     @PostMapping("/login")
-    @Operation(summary = "Authenticate a user within a specific tenant")
+    @Operation(
+            summary = "Tenant user login",
+            description = "Authenticates tenant user. Returns access token in body, " +
+                    "refresh token set as HttpOnly cookie.")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest,
@@ -96,8 +99,8 @@ public class AuthController {
     @PostMapping("/refresh")
     @Operation(
             summary = "Refresh access token",
-            description = "Issues a new access token using a valid refresh token. " +
-                    "Token is read from the HttpOnly cookie if present, otherwise from request body."
+            description = "Issues new access token using refresh token from cookie. " +
+                    "Rotates refresh token."
     )
     public ResponseEntity<ApiResponse<AuthResponse>> refreshAccessToken(
             @RequestBody(required = false) RefreshTokenRequest request,
@@ -123,7 +126,7 @@ public class AuthController {
     @PostMapping("/logout")
     @Operation(
             summary = "Logout",
-            description = "Revokes the refresh token and clears auth cookies."
+            description = "Revokes refresh token and clears auth cookie."
     )
     public ResponseEntity<ApiResponse<Void>> logout(
             @RequestBody(required = false) LogoutRequest request,

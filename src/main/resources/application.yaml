@@ -82,6 +82,8 @@ jwt:
   secret: ${JWT_SECRET}
   expiration: ${JWT_EXPIRATION}
   refresh-expiration: ${JWT_REFRESH_EXPIRATION}
+  issuer: mtbs-app
+  audience: mtbs-client
 
 razorpay:
   key-id: ${RAZORPAY_KEY_ID}

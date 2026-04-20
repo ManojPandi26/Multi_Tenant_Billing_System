@@ -27,7 +27,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/${api.version}/business-payments")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('BILLING_MANAGE')")
+@PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
 @Tag(name = "Business Payments",
      description = "Record and track payments received from customers against business invoices")
 @SecurityRequirement(name = "bearerAuth")

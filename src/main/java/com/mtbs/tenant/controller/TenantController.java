@@ -36,7 +36,7 @@ public class TenantController {
     }
 
     @PutMapping
-    @PreAuthorize("hasAuthority('TENANT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_TENANT_MANAGE')")
     @Operation(summary = "Update the current tenant's details (e.g. name)")
     public ResponseEntity<ApiResponse<TenantResponse>> updateTenant(
             @Valid @RequestBody UpdateTenantRequest request) {
@@ -45,7 +45,7 @@ public class TenantController {
     }
 
     @GetMapping("/schema")
-    @PreAuthorize("hasAuthority('TENANT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_TENANT_MANAGE')")
     @Operation(summary = "Get high level counts of records belonging to this tenant's schema")
     public ResponseEntity<ApiResponse<TenantSchemaInfoResponse>> getTenantSchemaInfo() {
         TenantSchemaInfoResponse response = tenantService.getTenantSchemaInfo(SecurityUtils.getCurrentTenantId());
@@ -60,7 +60,7 @@ public class TenantController {
     }
 
     @PostMapping("/deactivate")
-    @PreAuthorize("hasAuthority('TENANT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_TENANT_MANAGE')")
     @Operation(summary = "Deactivate the tenant to stop usage (Owner only)")
     public ResponseEntity<ApiResponse<Void>> deactivateTenant() {
         tenantService.deactivateTenant(SecurityUtils.getCurrentTenantId());
@@ -68,7 +68,7 @@ public class TenantController {
     }
 
     @PostMapping("/reactivate")
-    @PreAuthorize("hasAuthority('TENANT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_TENANT_MANAGE')")
     @Operation(summary = "Reactivate the tenant to resume usage (Owner only)")
     public ResponseEntity<ApiResponse<Void>> reactivateTenant() {
         tenantService.reactivateTenant(SecurityUtils.getCurrentTenantId());

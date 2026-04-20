@@ -89,7 +89,7 @@ public class SubscriptionController {
     // ── GET /upgrade/preview ──────────────────────────────────────────────────
 
     @GetMapping("/upgrade/preview")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Preview upgrade cost and proration",
             description = "Returns a full price breakdown before the user commits to an upgrade. " +
@@ -111,7 +111,7 @@ public class SubscriptionController {
     // ── POST /upgrade/pro ─────────────────────────────────────────────────────
 
     @PostMapping("/upgrade/pro")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Initiate upgrade to Pro",
             description = "Step 1 of the upgrade flow. Creates an OPEN invoice and a Razorpay order " +
@@ -134,7 +134,7 @@ public class SubscriptionController {
     // ── POST /upgrade/enterprise ──────────────────────────────────────────────
 
     @PostMapping("/upgrade/enterprise")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Initiate upgrade to Enterprise",
             description = "Step 1 of the upgrade flow. Creates an OPEN invoice and a Razorpay order " +
@@ -157,7 +157,7 @@ public class SubscriptionController {
     // ── POST /downgrade/free ──────────────────────────────────────────────────
 
     @PostMapping("/downgrade/free")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Downgrade to Free plan",
             description = "Switches the subscription to the Free plan. " +
@@ -180,7 +180,7 @@ public class SubscriptionController {
     // ── POST /cycle ───────────────────────────────────────────────────────────
 
     @PostMapping("/cycle")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Change billing cycle (MONTHLY ↔ ANNUAL)",
             description = "Switches billing frequency on the current plan. " +
@@ -208,7 +208,7 @@ public class SubscriptionController {
     // ── POST /cancel ──────────────────────────────────────────────────────────
 
     @PostMapping("/cancel")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Cancel subscription",
             description = "Cancels the current ACTIVE or TRIALING subscription. " +
@@ -231,7 +231,7 @@ public class SubscriptionController {
     // ── POST /reactivate ──────────────────────────────────────────────────────
 
     @PostMapping("/reactivate")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Reactivate a scheduled cancellation",
             description = "Undoes a cancel-at-period-end schedule. " +
@@ -249,7 +249,7 @@ public class SubscriptionController {
     // ── POST /activate ────────────────────────────────────────────────────────
 
     @PostMapping("/activate")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Activate subscription (convert trial to paid)",
             description = "Converts a TRIALING subscription to ACTIVE after payment. " +

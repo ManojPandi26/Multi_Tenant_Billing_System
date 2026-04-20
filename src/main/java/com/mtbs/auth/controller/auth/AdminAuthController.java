@@ -33,8 +33,10 @@ public class AdminAuthController {
     private final SuperAdminAuthService superAdminAuthService;
     private final CookieUtils cookieUtils;
 
-    @PostMapping("/login")
-    @Operation(summary = "Platform admin login â€” issues SUPER_ADMIN JWT with no tenantId")
+@PostMapping("/login")
+    @Operation(
+            summary = "Super admin login",
+            description = "Platform admin authentication. Separate from tenant auth.")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody SuperAdminLoginRequest request,
             HttpServletResponse response) {
@@ -78,7 +80,7 @@ public class AdminAuthController {
         Map<String, Object> profile = Map.of(
                 "userId", principal.getId(),
                 "email", principal.getEmail(),
-                "role", principal.getRole());
+                "role", "SUPER_ADMIN");
         return ResponseEntity.ok(ApiResponse.success(profile, "Profile retrieved"));
     }
 }

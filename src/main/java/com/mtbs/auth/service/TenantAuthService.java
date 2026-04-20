@@ -7,6 +7,7 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.auth.entity.User;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.notification.NotificationEvent;
+import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
 import com.mtbs.shared.event.audit.AuditLogEvent;
@@ -14,10 +15,10 @@ import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.exception.ResourceException;
-import com.mtbs.auth.repository.RolePermissionRepository;
 import com.mtbs.auth.repository.RoleRepository;
 import com.mtbs.auth.repository.UserRepository;
 import com.mtbs.auth.security.JwtTokenProvider;
+import com.mtbs.tenant.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -42,10 +44,12 @@ public class TenantAuthService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
-    private final RolePermissionRepository rolePermissionRepository;
     private final RefreshTokenService refreshTokenService;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
+    private final TenantRepository tenantRepository;
+    private final PermissionCacheService permissionCacheService;
+    private final SchemaCacheService schemaCacheService;
 
     private final OutboxEventPublisher outboxEventPublisher;
 
@@ -77,36 +81,35 @@ public class TenantAuthService {
         owner.setStatus(Status.ACTIVE);
         User savedUser = userRepository.saveAndFlush(owner);
 
-        // Load permissions for JWT
-        List<String> permissions = rolePermissionRepository
-                .findByRoleId(ownerRole.getId())
-                .stream()
-                .map(rp -> rp.getPermission().getName())
-                .collect(Collectors.toList());
-
-        // Generate JWT
+        // Generate JWT with roleId and tokenVersion
+        Instant issuedAt = Instant.now();
         String accessToken = jwtTokenProvider.generateToken(
                 savedUser.getId(),
                 tenant.getId(),
-                tenant.getSchemaName(),
-                ownerRole.getName(),
-                permissions
+                ownerRole.getId(),
+                savedUser.getTokenVersion()
         );
 
-        // Create refresh token
-        RefreshToken refreshToken = refreshTokenService.createRefreshToken(savedUser);
+        long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
+        boolean isTrial = tenant.getPlanType() == PlanType.FREE;
+        boolean requiresOnboarding = tenant.getOnboardingStep() == null || tenant.getOnboardingStep() < 3;
 
         log.info("ROLE_OWNER created with userId={} for tenantId={}", savedUser.getId(), tenant.getId());
 
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken.getToken())
-                .email(savedUser.getEmail())
-                .role(ownerRole.getName())
-                .userId(savedUser.getId())
-                .tenantId(tenant.getId())
-                .schemaName(tenant.getSchemaName())
-                .build();
+        return AuthResponse.forTenantUser(
+                accessToken,
+                expiresIn,
+                issuedAt,
+                savedUser.getId(),
+                savedUser.getEmail(),
+                ownerRole.getName(),
+                null,
+                tenant.getId(),
+                tenant.getName(),
+                savedUser.getIsFirstLogin(),
+                isTrial,
+                requiresOnboarding
+        );
     }
 
     @Transactional
@@ -124,16 +127,29 @@ public class TenantAuthService {
             throw AuthException.inactiveUser();
         }
 
-        List<String> permissions = rolePermissionRepository.findPermissionNamesByRoleId(user.getRole().getId());
+        boolean wasFirstLogin = Boolean.TRUE.equals(user.getIsFirstLogin());
+        if (wasFirstLogin) {
+            user.setIsFirstLogin(false);
+            userRepository.save(user);
+        }
 
+        Instant issuedAt = Instant.now();
         String accessToken = jwtTokenProvider.generateToken(
                 user.getId(),
                 tenant.getId(),
-                tenant.getSchemaName(),
-                user.getRole().getName(),
-                permissions);
+                user.getRole().getId(),
+                user.getTokenVersion());
 
-        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
+        long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
+
+        String schemaName = schemaCacheService.resolveSchemaName(tenant.getId());
+        Set<String> permissionSet = permissionCacheService.getPermissions(schemaName, user.getId(), user.getRole().getId());
+        List<String> permissions = permissionSet.stream()
+                .map(name -> name.startsWith("PERMISSION_") ? name.substring("PERMISSION_".length()) : name)
+                .collect(Collectors.toList());
+
+        boolean isTrial = tenant.getPlanType() == PlanType.FREE;
+        boolean requiresOnboarding = tenant.getOnboardingStep() == null || tenant.getOnboardingStep() < 3;
 
         outboxEventPublisher.save(AuthNotificationEvent.builder()
                 .eventType(NotificationEvent.USER_LOGIN)
@@ -163,15 +179,20 @@ public class TenantAuthService {
                 .severity("INFO")
                 .build(), "User", user.getId());
 
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken.getToken())
-                .email(user.getEmail())
-                .role(user.getRole().getName())
-                .userId(user.getId())
-                .tenantId(tenant.getId())
-                .schemaName(tenant.getSchemaName())
-                .build();
+        return AuthResponse.forTenantUser(
+                accessToken,
+                expiresIn,
+                issuedAt,
+                user.getId(),
+                user.getEmail(),
+                user.getRole().getName(),
+                permissions,
+                tenant.getId(),
+                tenant.getName(),
+                wasFirstLogin,
+                isTrial,
+                requiresOnboarding
+        );
     }
 
     @Transactional
@@ -185,24 +206,38 @@ public class TenantAuthService {
             throw AuthException.inactiveUser();
         }
 
-        List<String> permissions = rolePermissionRepository.findPermissionNamesByRoleId(user.getRole().getId());
-
+        Instant issuedAt = Instant.now();
         String accessToken = jwtTokenProvider.generateToken(
                 user.getId(),
                 tenant.getId(),
-                tenant.getSchemaName(),
-                user.getRole().getName(),
-                permissions);
+                user.getRole().getId(),
+                user.getTokenVersion());
 
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(validToken.getToken())
-                .email(user.getEmail())
-                .role(user.getRole().getName())
-                .userId(user.getId())
-                .tenantId(tenant.getId())
-                .schemaName(tenant.getSchemaName())
-                .build();
+        long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
+
+        String schemaName = schemaCacheService.resolveSchemaName(tenant.getId());
+        Set<String> permissionSet = permissionCacheService.getPermissions(schemaName, user.getId(), user.getRole().getId());
+        List<String> permissions = permissionSet.stream()
+                .map(name -> name.startsWith("PERMISSION_") ? name.substring("PERMISSION_".length()) : name)
+                .collect(Collectors.toList());
+
+        boolean isTrial = tenant.getPlanType() == PlanType.FREE;
+        boolean requiresOnboarding = tenant.getOnboardingStep() == null || tenant.getOnboardingStep() < 3;
+
+        return AuthResponse.forTenantUser(
+                accessToken,
+                expiresIn,
+                issuedAt,
+                user.getId(),
+                user.getEmail(),
+                user.getRole().getName(),
+                permissions,
+                tenant.getId(),
+                tenant.getName(),
+                false,
+                isTrial,
+                requiresOnboarding
+        );
     }
 
     @Transactional

@@ -38,6 +38,10 @@ app:
     rate-limit:
       max-attempts: 15
 
+jwt:
+  issuer: mtbs-app
+  audience: mtbs-client
+
 logging:
   level:
     com.mtbs: DEBUG

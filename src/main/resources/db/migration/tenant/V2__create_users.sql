@@ -13,8 +13,11 @@ CREATE TABLE IF NOT EXISTS users (
     email        VARCHAR(255) NOT NULL UNIQUE,
     password     VARCHAR(255) NOT NULL,
     role_id      BIGINT REFERENCES roles(id),
-    status       VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'
+    status       VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+    token_version BIGINT NOT NULL DEFAULT 1,
+    is_first_login BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_users_token_version ON users(id, token_version) WHERE deleted = FALSE;

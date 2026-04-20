@@ -33,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/${api.version}/business-invoices")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('BILLING_MANAGE')")
+@PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
 @Tag(name = "Business Invoices",
      description = "Create and manage invoices for your customers. " +
                    "Lifecycle: DRAFT → OPEN (finalize) → PAID (payment recorded) | VOID (cancelled)")

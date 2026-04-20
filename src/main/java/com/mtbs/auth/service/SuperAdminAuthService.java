@@ -14,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -39,6 +41,7 @@ public class SuperAdminAuthService {
             throw AuthException.invalidCredentials();
         }
 
+        Instant issuedAt = Instant.now();
         String accessToken = jwtTokenProvider.generateSuperAdminToken(admin);
         
         String refreshToken = java.util.UUID.randomUUID().toString();
@@ -67,15 +70,15 @@ public class SuperAdminAuthService {
 
         log.info("SUPER_ADMIN login successful for: {}", email);
 
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .email(admin.getEmail())
-                .role("SUPER_ADMIN")
-                .userId(admin.getId())
-                .tenantId(null)
-                .schemaName(null)
-                .build();
+        long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
+        return AuthResponse.forSuperAdmin(
+                accessToken,
+                expiresIn,
+                issuedAt,
+                admin.getId(),
+                admin.getEmail(),
+                false
+        );
     }
 
     public AuthResponse refreshAdminToken(String rawRefreshToken) {
@@ -112,14 +115,14 @@ public class SuperAdminAuthService {
         
         log.info("SUPER_ADMIN refresh successful for: {}", admin.getEmail());
         
-        return AuthResponse.builder()
-                .accessToken(newAccessToken)
-                .refreshToken(newRefreshToken)
-                .email(admin.getEmail())
-                .role("SUPER_ADMIN")
-                .userId(admin.getId())
-                .tenantId(null)
-                .schemaName(null)
-                .build();
+        long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
+        return AuthResponse.forSuperAdmin(
+                newAccessToken,
+                expiresIn,
+                Instant.now(),
+                admin.getId(),
+                admin.getEmail(),
+                false
+        );
     }
 }
