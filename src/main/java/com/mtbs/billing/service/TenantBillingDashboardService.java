@@ -2,17 +2,15 @@ package com.mtbs.billing.service;
 
 import com.mtbs.billing.dto.TenantBillingDashboard;
 import com.mtbs.billing.dto.UsageLimitsResponse;
-import com.mtbs.billing.entity.Invoice;
-import com.mtbs.billing.entity.Payment;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.billing.repository.InvoiceRepository;
 import com.mtbs.billing.repository.PaymentRepository;
+import com.mtbs.business.invoice.entity.BusinessInvoice;
 import com.mtbs.business.invoice.repository.BusinessInvoiceRepository;
 import com.mtbs.business.payment.repository.BusinessPaymentRepository;
 import com.mtbs.business.payment.entity.BusinessPayment;
 import com.mtbs.shared.enums.billing.AlertSeverity;
 import com.mtbs.shared.enums.billing.AlertType;
-import com.mtbs.shared.enums.billing.PaymentStatus;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.shared.util.SecurityUtils;
@@ -164,21 +162,25 @@ public class TenantBillingDashboardService {
     }
 
     private TenantBillingDashboard.InvoiceSummary buildRecentInvoice(Subscription sub) {
-        if (sub == null) return null;
-
-        Optional<Invoice> latestInvoice = invoiceRepository.findTopBySubscriptionIdOrderByCreatedAtDesc(sub.getId());
-        if (latestInvoice.isEmpty()) return null;
-
-        Invoice invoice = latestInvoice.get();
-        return TenantBillingDashboard.InvoiceSummary.builder()
-                .invoiceId(invoice.getId())
-                .invoiceNumber(invoice.getInvoiceNumber())
-                .amount(invoice.getTotalAmount())
-                .currency(invoice.getCurrency())
-                .status(invoice.getStatus().name())
-                .dueDate(invoice.getDueDate())
-                .paidAt(invoice.getPaidAt())
-                .build();
+        try {
+            List<BusinessInvoice> paidInvoices =
+                    businessInvoiceRepository.findAllPaid();
+            if (!paidInvoices.isEmpty()) {
+                BusinessInvoice bi = paidInvoices.get(0);
+                return TenantBillingDashboard.InvoiceSummary.builder()
+                        .invoiceId(bi.getId())
+                        .invoiceNumber(bi.getInvoiceNumber())
+                        .amount(bi.getTotalAmount())
+                        .currency(bi.getCurrency())
+                        .status(bi.getStatus().name())
+                        .dueDate(bi.getDueDate())
+                        .paidAt(bi.getPaidAt())
+                        .build();
+            }
+        } catch (Exception e) {
+            log.warn("Could not load recent invoice from business tables: {}", e.getMessage());
+        }
+        return null;
     }
 
     private TenantBillingDashboard.PaymentSummary buildPaymentSummary(Subscription sub, Plan plan) {
