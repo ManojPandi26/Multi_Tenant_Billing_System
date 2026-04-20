@@ -31,11 +31,11 @@ import java.util.concurrent.TimeUnit;
  *
  * Token storage strategy:
  *   - Tokens are stored in Redis, NOT in the DB — no schema change needed.
- *   - Key format: "pwd_reset:{tenantId}:{userId}:{token}"
+ *   - Key format: "pwd_reset:{tenantSlug}:{userId}:{token}"
  *   - TTL: 15 minutes (configurable via app.password-reset.token-ttl-minutes)
- *   - The full key embeds tenantId + userId so on reset we can:
+ *   - The full key embeds tenantSlug + userId so on reset we can:
  *       1. Validate the token exists in Redis
- *       2. Extract tenantId and userId directly from the key
+ *       2. Extract tenantSlug and userId directly from the key
  *       3. Set TenantContext without a second DB lookup
  *
  * Security properties:
@@ -57,6 +57,8 @@ public class PasswordResetService {
 
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
+    private final SlugCacheService slugCacheService;
+    private final SchemaCacheService schemaCacheService;
     private final StringRedisTemplate redisTemplate;
     private final PasswordEncoder passwordEncoder;
     private final OutboxEventPublisher outboxEventPublisher;
@@ -75,9 +77,12 @@ public class PasswordResetService {
      * Always returns 200 OK regardless of whether the email exists — prevents
      * email enumeration. The reset link is sent to the email if found.
      */
-    public void requestPasswordReset(Long tenantId, String email) {
-        log.info("Password reset requested for tenantId={}, email={}", tenantId, email);
+    public void requestPasswordReset(String tenantSlug, String email) {
+        log.info("Password reset requested for tenantSlug={}, email={}", tenantSlug, email);
 
+        // Resolve tenantId from slug
+        Long tenantId = slugCacheService.resolveTenantId(tenantSlug);
+        
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
@@ -87,10 +92,10 @@ public class PasswordResetService {
         try {
             userRepository.findByEmail(email).ifPresent(user -> {
                 // Purge any existing reset tokens for this user before issuing a new one
-                purgeExistingTokens(tenantId, user.getId());
+                purgeExistingTokens(tenantSlug, user.getId());
 
                 String token = UUID.randomUUID().toString();
-                String redisKey = buildKey(tenantId, user.getId(), token);
+                String redisKey = buildKey(tenantSlug, user.getId(), token);
 
                 redisTemplate.opsForValue().set(
                         redisKey,
@@ -101,18 +106,18 @@ public class PasswordResetService {
 
                 String resetLink = frontendUrl + "/reset-password"
                         + "?token=" + token
-                        + "&tenantId=" + tenantId;
+                        + "&slug=" + tenantSlug;
 
                 firePasswordResetEmail(user, tenant, resetLink);
 
-                log.info("Password reset token issued for userId={}, tenantId={}", user.getId(), tenantId);
+                log.info("Password reset token issued for userId={}, tenantSlug={}", user.getId(), tenantSlug);
             });
         } finally {
             TenantContext.clear();
         }
 
         // Always logs success — never reveals whether email was found
-        log.info("Password reset flow completed for tenantId={} (email presence not disclosed)", tenantId);
+        log.info("Password reset flow completed for tenantSlug={} (email presence not disclosed)", tenantSlug);
     }
 
     // ── Reset password ────────────────────────────────────────────────────────
@@ -120,15 +125,18 @@ public class PasswordResetService {
     /**
      * Validates the reset token and updates the user's password.
      *
-     * Token format: "pwd_reset:{tenantId}:{userId}:{token}"
-     * We scan Redis for keys matching "pwd_reset:{tenantId}:*:{token}" to find
+     * Token format: "pwd_reset:{tenantSlug}:{userId}:{token}"
+     * We scan Redis for keys matching "pwd_reset:{tenantSlug}:*:{token}" to find
      * the userId without requiring the client to pass it.
      */
-    public void resetPassword(Long tenantId, String token, String newPassword, String ipAddress, String deviceInfo) {
-        log.info("Password reset attempt for tenantId={}", tenantId);
+    public void resetPassword(String tenantSlug, String token, String newPassword, String ipAddress, String deviceInfo) {
+        log.info("Password reset attempt for tenantSlug={}", tenantSlug);
+
+        // Resolve tenantId from slug
+        Long tenantId = slugCacheService.resolveTenantId(tenantSlug);
 
         // Scan for the token across all users in this tenant
-        String keyPattern = KEY_PREFIX + tenantId + ":*:" + token;
+        String keyPattern = KEY_PREFIX + tenantSlug + ":*:" + token;
         String matchedKey = redisTemplate.keys(keyPattern)
                 .stream()
                 .findFirst()
@@ -140,7 +148,7 @@ public class PasswordResetService {
             throw AuthException.resetTokenExpired();
         }
 
-        // Extract userId from key: "pwd_reset:{tenantId}:{userId}:{token}"
+        // Extract userId from key: "pwd_reset:{tenantSlug}:{userId}:{token}"
         String[] parts = matchedKey.split(":");
         Long userId = Long.parseLong(parts[2]);
 
@@ -160,7 +168,7 @@ public class PasswordResetService {
             TenantContext.clear();
         }
 
-        log.info("Password reset successful for userId={}, tenantId={}", userId, tenantId);
+        log.info("Password reset successful for userId={}, tenantSlug={}", userId, tenantSlug);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -216,8 +224,8 @@ public class PasswordResetService {
         }
     }
 
-    private void purgeExistingTokens(Long tenantId, Long userId) {
-        String existingPattern = KEY_PREFIX + tenantId + ":" + userId + ":*";
+    private void purgeExistingTokens(String tenantSlug, Long userId) {
+        String existingPattern = KEY_PREFIX + tenantSlug + ":" + userId + ":*";
         var existingKeys = redisTemplate.keys(existingPattern);
         if (existingKeys != null && !existingKeys.isEmpty()) {
             redisTemplate.delete(existingKeys);
@@ -225,7 +233,7 @@ public class PasswordResetService {
         }
     }
 
-    private String buildKey(Long tenantId, Long userId, String token) {
-        return KEY_PREFIX + tenantId + ":" + userId + ":" + token;
+    private String buildKey(String tenantSlug, Long userId, String token) {
+        return KEY_PREFIX + tenantSlug + ":" + userId + ":" + token;
     }
 }

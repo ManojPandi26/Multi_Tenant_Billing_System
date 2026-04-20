@@ -197,7 +197,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPassword(
             @Valid @RequestBody ForgotPasswordRequest request) {
 
-        passwordResetService.requestPasswordReset(request.getTenantId(), request.getEmail());
+        passwordResetService.requestPasswordReset(request.getTenantSlug(), request.getEmail());
         return ResponseEntity.ok(ApiResponse.success(null,
                 "If that email is registered, a reset link has been sent."));
     }
@@ -218,7 +218,7 @@ public class AuthController {
 
         String ip = getClientIp(httpRequest);
         passwordResetService.resetPassword(
-                request.getTenantId(),
+                request.getTenantSlug(),
                 request.getToken(),
                 request.getNewPassword(),
                 ip,
