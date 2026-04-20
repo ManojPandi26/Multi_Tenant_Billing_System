@@ -7,6 +7,8 @@ import com.mtbs.auth.dto.auth.LogoutRequest;
 import com.mtbs.auth.dto.auth.RefreshTokenRequest;
 import com.mtbs.auth.dto.auth.ResetPasswordRequest;
 import com.mtbs.auth.dto.auth.SignupRequest;
+import com.mtbs.auth.dto.auth.TenantResolutionRequest;
+import com.mtbs.auth.dto.auth.TenantResolutionResponse;
 import com.mtbs.auth.dto.auth.UserProfileResponse;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.auth.service.AuthService;
@@ -59,6 +61,23 @@ public class AuthController {
         cookieUtils.addAuthCookies(response, result.getAccessToken(), result.getRefreshToken());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(result, "Account created. Please complete onboarding."));
+    }
+
+    // ── POST /api/auth/tenants ─────────────────────────────────────────────────
+
+    @PostMapping("/tenants")
+    @Operation(
+            summary = "Resolve tenant workspaces for an email address",
+            description = "Returns tenant slugs associated with this email. " +
+                    "Used for two-step login UX. Always returns 200 to prevent email enumeration."
+    )
+    public ResponseEntity<ApiResponse<TenantResolutionResponse>> resolveTenantsForEmail(
+            @Valid @RequestBody TenantResolutionRequest request) {
+
+        var tenants = authService.resolveTenantsForEmail(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success(
+                TenantResolutionResponse.fromOptions(tenants),
+                "Tenants resolved"));
     }
 
     // ── POST /api/auth/login ──────────────────────────────────────────────────
