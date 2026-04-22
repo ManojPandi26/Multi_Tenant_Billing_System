@@ -91,6 +91,9 @@ razorpay:
   webhook-secret: ${RAZORPAY_WEBHOOK_SECRET}
   currency: INR
 
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
 app:
   cookie:
     secure: false

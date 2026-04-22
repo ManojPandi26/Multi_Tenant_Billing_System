@@ -63,7 +63,7 @@ public class TenantAuthService {
      *  - The user's name is a personal name at this stage, not the company name
      */
     @Transactional
-    public AuthResponse createOwnerUserForSignup(SignupRequest request, Tenant tenant) {
+    public AuthResponse createOwnerUserForSignup(SignupRequest request, Tenant tenant, TokenPair tokenPair) {
         log.info("Creating ROLE_OWNER user for signup, tenantId={}", tenant.getId());
 
         Role ownerRole = roleRepository.findByName("OWNER")
@@ -81,14 +81,14 @@ public class TenantAuthService {
         owner.setStatus(Status.ACTIVE);
         User savedUser = userRepository.saveAndFlush(owner);
 
-        // Generate JWT with roleId and tokenVersion
         Instant issuedAt = Instant.now();
-        String accessToken = jwtTokenProvider.generateToken(
+        tokenPair.setAccessToken(jwtTokenProvider.generateToken(
                 savedUser.getId(),
                 tenant.getId(),
                 ownerRole.getId(),
                 savedUser.getTokenVersion()
-        );
+        ));
+        tokenPair.setRefreshToken(refreshTokenService.createRefreshToken(savedUser).getToken());
 
         long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
         boolean isTrial = tenant.getPlanType() == PlanType.FREE;
@@ -97,7 +97,6 @@ public class TenantAuthService {
         log.info("ROLE_OWNER created with userId={} for tenantId={}", savedUser.getId(), tenant.getId());
 
         return AuthResponse.forTenantUser(
-                accessToken,
                 expiresIn,
                 issuedAt,
                 savedUser.getId(),
@@ -113,7 +112,7 @@ public class TenantAuthService {
     }
 
     @Transactional
-    public AuthResponse loginInTenantSchema(LoginRequest request, Tenant tenant, String ipAddress, String deviceInfo) {
+    public AuthResponse loginInTenantSchema(LoginRequest request, Tenant tenant, String ipAddress, String deviceInfo, TokenPair tokenPair) {
         log.info("Processing login in tenant schema...");
 
         User user = userRepository.findByEmail(request.getEmail())
@@ -134,11 +133,12 @@ public class TenantAuthService {
         }
 
         Instant issuedAt = Instant.now();
-        String accessToken = jwtTokenProvider.generateToken(
+        tokenPair.setAccessToken(jwtTokenProvider.generateToken(
                 user.getId(),
                 tenant.getId(),
                 user.getRole().getId(),
-                user.getTokenVersion());
+                user.getTokenVersion()));
+        tokenPair.setRefreshToken(refreshTokenService.createRefreshToken(user).getToken());
 
         long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
 
@@ -180,7 +180,6 @@ public class TenantAuthService {
                 .build(), "User", user.getId());
 
         return AuthResponse.forTenantUser(
-                accessToken,
                 expiresIn,
                 issuedAt,
                 user.getId(),
@@ -196,7 +195,7 @@ public class TenantAuthService {
     }
 
     @Transactional
-    public AuthResponse refreshInTenantSchema(RefreshTokenRequest request, Tenant tenant) {
+    public AuthResponse refreshInTenantSchema(RefreshTokenRequest request, Tenant tenant, TokenPair tokenPair) {
         log.info("Refreshing token in tenant schema...");
 
         RefreshToken validToken = refreshTokenService.validateRefreshToken(request.getRefreshToken());
@@ -207,11 +206,12 @@ public class TenantAuthService {
         }
 
         Instant issuedAt = Instant.now();
-        String accessToken = jwtTokenProvider.generateToken(
+        tokenPair.setAccessToken(jwtTokenProvider.generateToken(
                 user.getId(),
                 tenant.getId(),
                 user.getRole().getId(),
-                user.getTokenVersion());
+                user.getTokenVersion()));
+        tokenPair.setRefreshToken(refreshTokenService.createRefreshToken(user).getToken());
 
         long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
 
@@ -225,7 +225,6 @@ public class TenantAuthService {
         boolean requiresOnboarding = tenant.getOnboardingStep() == null || tenant.getOnboardingStep() < 3;
 
         return AuthResponse.forTenantUser(
-                accessToken,
                 expiresIn,
                 issuedAt,
                 user.getId(),

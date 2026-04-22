@@ -18,10 +18,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -32,6 +34,9 @@ public class SecurityConfig {
 
     @Value("${api.version}")
     private String apiVersion;
+
+    @Value("${cors.allowed-origins}")
+    private String allowedOrigins;
 
     private String[] getPublicUrls() {
         String version = apiVersion;
@@ -58,7 +63,21 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(AbstractHttpConfigurer::disable)
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .ignoringRequestMatchers(
+                                "/api/" + apiVersion + "/auth/login",
+                                "/api/" + apiVersion + "/auth/signup",
+                                "/api/" + apiVersion + "/auth/refresh",
+                                "/api/" + apiVersion + "/auth/forgot-password",
+                                "/api/" + apiVersion + "/auth/reset-password",
+                                "/api/" + apiVersion + "/onboarding/**",
+                                "/api/" + apiVersion + "/webhooks/**",
+                                "/api/" + apiVersion + "/admin/auth/login",
+                                "/api/" + apiVersion + "/admin/auth/refresh",
+                                "/actuator/**"
+                        )
+                )
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -83,15 +102,31 @@ public class SecurityConfig {
         return config.getAuthenticationManager();
     }
 
+    @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:3000"));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
-        config.setAllowedHeaders(List.of("*"));
+        
+        // Read allowed origins from externalized property
+        List<String> origins = Arrays.asList(allowedOrigins.split(","));
+        origins.replaceAll(String::trim);
+        config.setAllowedOrigins(origins);
+        
+        // Allow standard REST methods
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        
+        // Allow common headers and CSRF header
+        config.setAllowedHeaders(List.of("*", "X-XSRF-TOKEN"));
+        
+        // Expose Set-Cookie header so browser can read it in cross-origin responses
+        config.setExposedHeaders(List.of("Set-Cookie"));
+        
+        // MANDATORY: Allow credentials (cookies, auth headers) on cross-origin requests
         config.setAllowCredentials(true);
+        
+        // Cache preflight requests for 1 hour
+        config.setMaxAge(3600L);
 
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
     }

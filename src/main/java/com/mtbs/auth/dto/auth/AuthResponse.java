@@ -1,6 +1,5 @@
 package com.mtbs.auth.dto.auth;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,6 +9,17 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Authentication response DTO for login/refresh/signup endpoints.
+ * 
+ * IMPORTANT: Tokens are NEVER included in this response.
+ * - Access token: Set via HttpOnly, Secure, SameSite=Lax cookie
+ * - Refresh token: Set via HttpOnly, Secure, SameSite=Lax cookie (path-scoped to /api/auth/refresh)
+ * 
+ * DO NOT attempt to store tokens in localStorage.
+ * Browsers automatically send cookies with requests after login.
+ * JS code cannot access HttpOnly cookies - they are managed entirely server-side.
+ */
 @Getter
 @Builder
 @NoArgsConstructor
@@ -17,32 +27,10 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class AuthResponse {
 
-    private TokenInfo tokens;
     private UserInfo user;
     private TenantInfo tenant;
     private SessionInfo session;
     private FlagsInfo flags;
-
-    @JsonIgnore
-    public String getAccessToken() {
-        return tokens != null ? tokens.getAccessToken() : null;
-    }
-
-    @JsonIgnore
-    public String getRefreshToken() {
-        return null;
-    }
-
-    @Getter
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class TokenInfo {
-        private String accessToken;
-        private String tokenType;
-        private long expiresIn;
-        private Instant expiresAt;
-    }
 
     @Getter
     @Builder
@@ -84,7 +72,6 @@ public class AuthResponse {
     }
 
     public static AuthResponse forTenantUser(
-            String accessToken,
             long expiresIn,
             Instant issuedAt,
             Long userId,
@@ -100,12 +87,6 @@ public class AuthResponse {
         Instant expiresAt = issuedAt.plusSeconds(expiresIn);
 
         return AuthResponse.builder()
-                .tokens(TokenInfo.builder()
-                        .accessToken(accessToken)
-                        .tokenType("Bearer")
-                        .expiresIn(expiresIn)
-                        .expiresAt(expiresAt)
-                        .build())
                 .user(UserInfo.builder()
                         .userId(userId)
                         .email(email)
@@ -129,7 +110,6 @@ public class AuthResponse {
     }
 
     public static AuthResponse forSuperAdmin(
-            String accessToken,
             long expiresIn,
             Instant issuedAt,
             Long userId,
@@ -139,12 +119,6 @@ public class AuthResponse {
         Instant expiresAt = issuedAt.plusSeconds(expiresIn);
 
         return AuthResponse.builder()
-                .tokens(TokenInfo.builder()
-                        .accessToken(accessToken)
-                        .tokenType("Bearer")
-                        .expiresIn(expiresIn)
-                        .expiresAt(expiresAt)
-                        .build())
                 .user(UserInfo.builder()
                         .userId(userId)
                         .email(email)
