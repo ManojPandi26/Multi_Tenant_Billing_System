@@ -47,7 +47,6 @@ public class CookieUtils {
     @Value("${jwt.refresh-expiration:604800000}")
     private long jwtRefreshExpirationMs;
 
-    private final ApiProperties apiProperties;
 
     // ── PUBLIC API ────────────────────────────────────────────────────────────
 
@@ -170,7 +169,7 @@ public class CookieUtils {
         ResponseCookie refreshCookie = createTokenCookie(
                 CookieConstants.REFRESH_TOKEN_COOKIE,
                 refreshToken,
-                apiProperties.getAuthRefreshPath(),
+                CookieConstants.REFRESH_PATH,
                 refreshTokenMaxAge);
         response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
 
@@ -208,7 +207,7 @@ public class CookieUtils {
         ResponseCookie refreshCookie = createTokenCookie(
                 CookieConstants.REFRESH_TOKEN_COOKIE,
                 refreshToken,
-                apiProperties.getAdminAuthRefreshPath(),
+                CookieConstants.ADMIN_REFRESH_PATH,
                 refreshTokenMaxAge);
         response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
 
@@ -237,7 +236,7 @@ public class CookieUtils {
         // Clear refresh token cookie (path: /api/{version}/auth/refresh)
         ResponseCookie clearRefreshCookie = clearCookie(
                 CookieConstants.REFRESH_TOKEN_COOKIE,
-                apiProperties.getAuthRefreshPath());
+                CookieConstants.REFRESH_PATH);
         response.addHeader(HttpHeaders.SET_COOKIE, clearRefreshCookie.toString());
 
         // Clear admin refresh token cookie (path: /api/{version}/admin/auth/refresh)
@@ -252,7 +251,7 @@ public class CookieUtils {
     public void clearAdminAuthCookies(HttpServletResponse response) {
         ResponseCookie clearAdminRefreshCookie = clearCookie(
                 CookieConstants.REFRESH_TOKEN_COOKIE,
-                apiProperties.getAdminAuthRefreshPath());
+                CookieConstants.ADMIN_REFRESH_PATH);
         response.addHeader(HttpHeaders.SET_COOKIE, clearAdminRefreshCookie.toString());
 
         log.debug("All auth cookies cleared from response");
@@ -266,6 +265,6 @@ public class CookieUtils {
      */
     public void logConfiguration() {
         log.info("CookieUtils initialized: secure={}, jwtExpiry={}ms, refreshExpiry={}ms, refreshPath={}",
-                cookieSecure, jwtExpirationMs, jwtRefreshExpirationMs, apiProperties.getAuthRefreshPath());
+                cookieSecure, jwtExpirationMs, jwtRefreshExpirationMs, CookieConstants.REFRESH_PATH);
     }
 }
