@@ -31,7 +31,7 @@ public class RoleController {
     private final RoleService roleService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('ROLE_VIEW')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_VIEW')")
     @Operation(summary = "Get all roles in the current tenant")
     public ResponseEntity<ApiResponse<List<RoleResponse>>> getAllRoles() {
         List<RoleResponse> response = roleService.getAllRoles();
@@ -39,7 +39,7 @@ public class RoleController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('ROLE_VIEW')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_VIEW')")
     @Operation(summary = "Get detailed information about a specific role")
     public ResponseEntity<ApiResponse<RoleDetailResponse>> getRoleById(@PathVariable Long id) {
         RoleDetailResponse response = roleService.getRoleById(id);
@@ -47,7 +47,7 @@ public class RoleController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('ROLE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_MANAGE')")
     @Operation(summary = "Create a new custom role")
     public ResponseEntity<ApiResponse<RoleResponse>> createRole(
             @Valid @RequestBody CreateRoleRequest request) {
@@ -57,7 +57,7 @@ public class RoleController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('ROLE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_MANAGE')")
     @Operation(summary = "Update an existing custom role")
     public ResponseEntity<ApiResponse<RoleResponse>> updateRole(
             @PathVariable Long id,
@@ -67,7 +67,7 @@ public class RoleController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('ROLE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_MANAGE')")
     @Operation(summary = "Delete a role if it is not a system role and has no users")
     public ResponseEntity<ApiResponse<Void>> deleteRole(@PathVariable Long id) {
         roleService.deleteRole(id);
@@ -75,7 +75,7 @@ public class RoleController {
     }
 
     @GetMapping("/{id}/permissions")
-    @PreAuthorize("hasAuthority('ROLE_VIEW')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_VIEW')")
     @Operation(summary = "Get all permissions currently assigned to a role")
     public ResponseEntity<ApiResponse<List<PermissionResponse>>> getPermissionsForRole(@PathVariable Long id) {
         List<PermissionResponse> response = roleService.getPermissionsForRole(id);
@@ -83,7 +83,7 @@ public class RoleController {
     }
 
     @PostMapping("/{id}/permissions")
-    @PreAuthorize("hasAuthority('ROLE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_MANAGE')")
     @Operation(summary = "Assign a single permission to a role")
     public ResponseEntity<ApiResponse<RoleDetailResponse>> assignPermissionToRole(
             @PathVariable Long id,
@@ -94,7 +94,7 @@ public class RoleController {
     }
 
     @DeleteMapping("/{id}/permissions/{permId}")
-    @PreAuthorize("hasAuthority('ROLE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_ROLE_MANAGE')")
     @Operation(summary = "Remove a single permission from a role")
     public ResponseEntity<ApiResponse<Void>> removePermissionFromRole(
             @PathVariable Long id,

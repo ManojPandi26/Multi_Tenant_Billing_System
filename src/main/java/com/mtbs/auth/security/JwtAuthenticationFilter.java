@@ -1,5 +1,8 @@
 package com.mtbs.auth.security;
 
+import com.mtbs.auth.service.PermissionCacheService;
+import com.mtbs.auth.service.SchemaCacheService;
+import com.mtbs.auth.service.TokenVersionCacheService;
 import com.mtbs.shared.constant.SecurityConstants;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.shared.util.CookieUtils;
@@ -11,6 +14,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
@@ -20,7 +25,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
 import io.jsonwebtoken.Claims;
 
@@ -31,87 +38,110 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CookieUtils cookieUtils;
+    private final SchemaCacheService schemaCacheService;
+    private final TokenVersionCacheService tokenVersionCacheService;
+    private final PermissionCacheService permissionCacheService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        log.debug("JWT filter executing for: {}", request.getRequestURI());
+        String jwt = getJwtFromRequest(request);
+
+        if (!StringUtils.hasText(jwt) || !jwtTokenProvider.validateToken(jwt)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        Claims claims = jwtTokenProvider.getClaimFromToken(jwt, Function.identity());
+        Boolean isSuperAdmin = claims.get("isSuperAdmin", Boolean.class);
+
+        if (Boolean.TRUE.equals(isSuperAdmin)) {
+            UserPrincipal principal = new UserPrincipal(
+                    Long.parseLong(claims.getSubject()),
+                    claims.get("email", String.class),
+                    null, null, null, null, null,
+                    List.of(SecurityConstants.SUPER_ADMIN_ROLE));
+
+            UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(
+                            principal, null, principal.getAuthorities());
+            authentication.setDetails(
+                    new WebAuthenticationDetailsSource().buildDetails(request));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        Long userId = jwtTokenProvider.getUserIdFromToken(jwt);
+        Long tenantId;
+        Long roleId;
+        Long tokenVersion;
+        String schemaName;
+
         try {
-            String jwt = getJwtFromRequest(request);
+            tenantId = jwtTokenProvider.getTenantIdFromToken(jwt);
+            roleId = jwtTokenProvider.getRoleIdFromToken(jwt);
+            tokenVersion = jwtTokenProvider.getTokenVersionFromToken(jwt);
 
-            if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
-                Claims claims = jwtTokenProvider.getClaimFromToken(jwt, Function.identity());
+            schemaName = schemaCacheService.resolveSchemaName(tenantId);
 
-                if (jwtTokenProvider.isSuperAdminToken(claims)) {
-                    UserPrincipal principal = new UserPrincipal(
-                            Long.parseLong(claims.getSubject()),
-                            claims.get("email", String.class),
-                            null, null, null,
-                            SecurityConstants.SUPER_ADMIN_ROLE,
-                            List.of(SecurityConstants.SUPER_ADMIN_ROLE));
+            TenantContext.setTenantId(tenantId);
+            TenantContext.setCurrentSchema(schemaName);
+            log.debug("TenantContext set: tenantId={} schema={}", tenantId, schemaName);
 
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    principal, null, principal.getAuthorities());
-                    authentication.setDetails(
-                            new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-
-                    // Super admin has no tenant â€” skip TenantContext entirely,
-                    // proceed directly to chain, finally block will still clear (no-op)
-                    filterChain.doFilter(request, response);
-                    return;
-                }
-
-                Long userId      = jwtTokenProvider.getUserIdFromToken(jwt);
-                Long tenantId    = jwtTokenProvider.getTenantIdFromToken(jwt);
-                String schema    = jwtTokenProvider.getSchemaNameFromToken(jwt);
-                String role      = jwtTokenProvider.getRoleFromToken(jwt);
-                List<String> permissions = jwtTokenProvider.getPermissionsFromToken(jwt);
-
-                // Set BEFORE chain.doFilter() â€” Hibernate reads this at connection
-                // acquisition time, which happens inside the downstream @Transactional
-                TenantContext.setTenantId(tenantId);
-                TenantContext.setCurrentSchema(schema);
-                log.debug("TenantContext set as” tenantId={}, schema={}", tenantId, schema);
-
-                UserPrincipal userPrincipal = new UserPrincipal(
-                        userId, null, null, tenantId, schema, role, permissions);
-
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(
-                                userPrincipal, null, userPrincipal.getAuthorities());
-                authentication.setDetails(
-                        new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-
-                filterChain.doFilter(request, response); // chain runs HERE with context set
-
-            } else {
-                // No token or invalid pass through for Spring Security to reject downstream
-                filterChain.doFilter(request, response);
+            if (!tokenVersionCacheService.isTokenVersionValid(schemaName, userId, tokenVersion)) {
+                log.warn("Rejected revoked token: userId={} claimedVersion={}", userId, tokenVersion);
+                sendUnauthorized(response, "TOKEN_REVOKED", "Token has been revoked");
+                return;
             }
 
-        } finally {
-            // ALWAYS runs , after the entire downstream chain completes,
-            // including controller + service + repository + response write
+            Set<String> permissions = permissionCacheService.getPermissions(schemaName, userId, roleId);
+
+            List<GrantedAuthority> authorities = permissions.stream()
+                    .map(p -> new SimpleGrantedAuthority("PERMISSION_" + p))
+                    .collect(Collectors.toList());
+
+            UserPrincipal principal = new UserPrincipal(
+                    userId, null, null, tenantId, schemaName, roleId, null, new java.util.ArrayList<>(permissions));
+
+            UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(
+                            principal, null, authorities);
+            authentication.setDetails(
+                    new WebAuthenticationDetailsSource().buildDetails(request));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+            filterChain.doFilter(request, response);
+
+        } catch (Exception e) {
+            log.error("Auth filter failure userId={}: {}", userId, e.getMessage(), e);
+            SecurityContextHolder.clearContext();
             TenantContext.clear();
-            log.debug("TenantContext cleared");
+            sendUnauthorized(response, "UNAUTHORIZED", "Authorization service unavailable");
         }
     }
 
     private String getJwtFromRequest(HttpServletRequest request) {
-        // 1. Try cookie first
         Optional<String> cookieToken = cookieUtils.extractAccessToken(request);
         if (cookieToken.isPresent()) {
             return cookieToken.get();
         }
         
-        // 2. Fallback to Authorization header
         String bearerToken = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith(SecurityConstants.BEARER_PREFIX)) {
             return bearerToken.substring(7);
         }
         return null;
+    }
+
+    private void sendUnauthorized(HttpServletResponse response, String code, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(String.format(
+                "{\"success\":false,\"error\":{\"code\":\"%s\",\"message\":\"%s\"}}",
+                code, message));
     }
 }

@@ -43,7 +43,7 @@ public class CustomerController {
 
     @PostMapping
     @TrackUsage(metric = UsageMetric.API_CALLS)
-    @PreAuthorize("hasAuthority('CUSTOMER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_CUSTOMER_MANAGE')")
     @Operation(
         summary = "Create a customer",
         description = "Creates a new customer and syncs them to Razorpay (best-effort). " +
@@ -63,7 +63,7 @@ public class CustomerController {
     // ── GET /api/customers ────────────────────────────────────────────────────
 
     @GetMapping
-    @PreAuthorize("hasAuthority('CUSTOMER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_CUSTOMER_MANAGE')")
     @Operation(
         summary = "List customers",
         description = "Returns a paginated list of all customers in this tenant. " +
@@ -83,7 +83,7 @@ public class CustomerController {
     // ── GET /api/customers/{id} ───────────────────────────────────────────────
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('CUSTOMER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_CUSTOMER_MANAGE')")
     @Operation(
         summary = "Get customer by ID",
         description = "Returns a single customer record. " +
@@ -99,7 +99,7 @@ public class CustomerController {
 
     @PutMapping("/{id}")
     @TrackUsage(metric = UsageMetric.API_CALLS)
-    @PreAuthorize("hasAuthority('CUSTOMER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_CUSTOMER_MANAGE')")
     @Operation(
         summary = "Update a customer",
         description = "Updates customer fields. All fields are optional — send only what changed. " +
@@ -117,7 +117,7 @@ public class CustomerController {
     // ── DELETE /api/customers/{id} ────────────────────────────────────────────
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('CUSTOMER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_CUSTOMER_MANAGE')")
     @Operation(
         summary = "Delete a customer",
         description = "Soft-deletes a customer. " +

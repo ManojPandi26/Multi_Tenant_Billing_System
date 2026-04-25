@@ -31,7 +31,7 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('USER_VIEW')")
+    @PreAuthorize("hasAuthority('PERMISSION_USER_VIEW')")
     @Operation(summary = "List all active users in the tenant, paginated")
     public ResponseEntity<ApiResponse<PageResponse<UserResponse>>> getAllUsers(Pageable pageable) {
         Page<UserResponse> response = userService.getAllUsers(pageable);
@@ -39,7 +39,7 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('USER_VIEW')")
+    @PreAuthorize("hasAuthority('PERMISSION_USER_VIEW')")
     @Operation(summary = "Get a specific user by ID in the current tenant")
     public ResponseEntity<ApiResponse<UserResponse>> getUserById(@PathVariable Long id) {
         UserResponse response = userService.getUserById(id);
@@ -47,7 +47,7 @@ public class UserController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('USER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_USER_MANAGE')")
     @Operation(summary = "Create a new user within the current tenant")
     public ResponseEntity<ApiResponse<UserResponse>> createUser(
             @Valid @RequestBody CreateUserRequest request) {
@@ -57,7 +57,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('USER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_USER_MANAGE')")
     @Operation(summary = "Update a specific user's basic details (name, email)")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
             @PathVariable Long id,
@@ -75,7 +75,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}/role")
-    @PreAuthorize("hasAuthority('USER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_USER_MANAGE')")
     @Operation(summary = "Change a user's role")
     public ResponseEntity<ApiResponse<UserResponse>> changeUserRole(
             @PathVariable Long id,
@@ -85,7 +85,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('USER_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_USER_MANAGE')")
     @Operation(summary = "Suspend or activate a user account")
     public ResponseEntity<ApiResponse<UserResponse>> changeUserStatus(
             @PathVariable Long id,

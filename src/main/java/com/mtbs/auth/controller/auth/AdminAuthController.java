@@ -1,11 +1,9 @@
 package com.mtbs.auth.controller.auth;
 
-import com.mtbs.shared.util.CookieUtils;
 import com.mtbs.shared.util.SecurityUtils;
 import com.mtbs.auth.dto.auth.AuthResponse;
 import com.mtbs.auth.dto.auth.SuperAdminLoginRequest;
 import com.mtbs.shared.dto.common.ApiResponse;
-import com.mtbs.shared.exception.AuthException;
 import com.mtbs.auth.security.UserPrincipal;
 import com.mtbs.auth.service.SuperAdminAuthService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,18 +29,17 @@ import java.util.Map;
 public class AdminAuthController {
 
     private final SuperAdminAuthService superAdminAuthService;
-    private final CookieUtils cookieUtils;
 
-    @PostMapping("/login")
-    @Operation(summary = "Platform admin login â€” issues SUPER_ADMIN JWT with no tenantId")
+@PostMapping("/login")
+    @Operation(
+            summary = "Super admin login",
+            description = "Platform admin authentication. Separate from tenant auth.")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody SuperAdminLoginRequest request,
             HttpServletResponse response) {
-        AuthResponse result = superAdminAuthService.login(
-                request.getEmail(), request.getPassword());
-        
-        cookieUtils.addAdminAuthCookies(response, result.getAccessToken(), result.getRefreshToken());
-        return ResponseEntity.ok(ApiResponse.success((result), "Platform admin login successful"));
+        AuthResponse result = superAdminAuthService.adminLogin(
+                request.getEmail(), request.getPassword(), response);
+        return ResponseEntity.ok(ApiResponse.success(result, "Platform admin login successful"));
     }
 
     @PostMapping("/refresh")
@@ -50,23 +47,15 @@ public class AdminAuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> refreshAdminToken(
             HttpServletRequest httpRequest,
             HttpServletResponse response) {
-        
-        String cookieToken = cookieUtils.extractRefreshToken(httpRequest).orElse(null);
-        if (!org.springframework.util.StringUtils.hasText(cookieToken)) {
-            // we could fall back to body, but admin refresh endpoint is entirely cookie driven per spec for admin refresh
-            throw AuthException.invalidCredentials();
-        }
-
-        AuthResponse result = superAdminAuthService.refreshAdminToken(cookieToken);
-        cookieUtils.addAdminAuthCookies(response, result.getAccessToken(), result.getRefreshToken());
-        return ResponseEntity.ok(ApiResponse.success((result), "Admin token refreshed successfully"));
+        AuthResponse result = superAdminAuthService.adminRefresh(httpRequest, response);
+        return ResponseEntity.ok(ApiResponse.success(result, "Admin token refreshed successfully"));
     }
 
     @PostMapping("/logout")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     @Operation(summary = "Platform admin logout")
-    public ResponseEntity<ApiResponse<Void>> logout(jakarta.servlet.http.HttpServletResponse response) {
-        cookieUtils.clearAuthCookies(response);
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletResponse response) {
+        superAdminAuthService.adminLogout(response);
         return ResponseEntity.ok(ApiResponse.success(null, "Admin logged out successfully"));
     }
 
@@ -78,7 +67,7 @@ public class AdminAuthController {
         Map<String, Object> profile = Map.of(
                 "userId", principal.getId(),
                 "email", principal.getEmail(),
-                "role", principal.getRole());
+                "role", "SUPER_ADMIN");
         return ResponseEntity.ok(ApiResponse.success(profile, "Profile retrieved"));
     }
 }

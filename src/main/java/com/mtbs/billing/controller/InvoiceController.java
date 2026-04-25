@@ -37,7 +37,7 @@ public class InvoiceController {
     // ── GET /api/invoices ─────────────────────────────────────────────────────
 
     @GetMapping
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "List all invoices",
             description = "Returns a paginated list of all invoices for the current tenant, " +
@@ -54,7 +54,7 @@ public class InvoiceController {
     // ── GET /api/invoices/{id} ────────────────────────────────────────────────
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Get invoice by ID",
             description = "Returns a single invoice with all line items. " +
@@ -71,7 +71,7 @@ public class InvoiceController {
 
     @PostMapping("/{id}/void")
     @TrackUsage(metric = UsageMetric.API_CALLS)
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Void an invoice",
             description = "Marks a DRAFT or OPEN invoice as VOID. " +
@@ -90,7 +90,7 @@ public class InvoiceController {
 
     @GetMapping("/{id}/download")
     @TrackUsage(metric = UsageMetric.API_CALLS)
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Download invoice as PDF",
             description = "Generates and returns the invoice as a PDF file. " +

@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.util.Date;
-import java.util.List;
 import java.util.function.Function;
 import com.mtbs.auth.entity.PlatformAdmin;
 
@@ -24,22 +23,29 @@ public class JwtTokenProvider {
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
 
+    @Value("${jwt.issuer}")
+    private String issuer;
+
+    @Value("${jwt.audience}")
+    private String audience;
+
     private SecretKey getSigningKey() {
         byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String generateToken(Long userId, Long tenantId, String schemaName,
-            String role, List<String> permissions) {
+    public String generateToken(Long userId, Long tenantId, Long roleId, Long tokenVersion) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + jwtExpiration);
 
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("tenantId", tenantId)
-                .claim("schemaName", schemaName)
-                .claim("role", role)
-                .claim("permissions", permissions)
+                .claim("roleId", roleId)
+                .claim("tokenVersion", tokenVersion)
+                .claim("typ", "ACCESS")
+                .issuer(issuer)
+                .audience().add(audience).and()
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(getSigningKey())
@@ -50,8 +56,10 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .subject(String.valueOf(admin.getId()))
                 .claim("email", admin.getEmail())
-                .claim("role", "SUPER_ADMIN")
                 .claim("isSuperAdmin", true)
+                .claim("typ", "ACCESS")
+                .issuer(issuer)
+                .audience().add(audience).and()
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + jwtExpiration))
                 .signWith(getSigningKey())
@@ -71,20 +79,14 @@ public class JwtTokenProvider {
         return claims.get("tenantId", Long.class);
     }
 
-    public String getSchemaNameFromToken(String token) {
+    public Long getRoleIdFromToken(String token) {
         Claims claims = getAllClaimsFromToken(token);
-        return claims.get("schemaName", String.class);
+        return claims.get("roleId", Long.class);
     }
 
-    public String getRoleFromToken(String token) {
+    public Long getTokenVersionFromToken(String token) {
         Claims claims = getAllClaimsFromToken(token);
-        return claims.get("role", String.class);
-    }
-
-    @SuppressWarnings("unchecked")
-    public List<String> getPermissionsFromToken(String token) {
-        Claims claims = getAllClaimsFromToken(token);
-        return claims.get("permissions", List.class);
+        return claims.get("tokenVersion", Long.class);
     }
 
     public <T> T getClaimFromToken(String token, Function<Claims, T> claimsResolver) {

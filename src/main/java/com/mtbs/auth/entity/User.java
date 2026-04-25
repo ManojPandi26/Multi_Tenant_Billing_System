@@ -35,4 +35,12 @@ public class User extends AuditableEntity {
     @Column(nullable = false)
     @Builder.Default
     private Status status = Status.ACTIVE;
+
+    @Builder.Default
+    @Column(name = "token_version", nullable = false)
+    private Long tokenVersion = 1L;
+
+    @Builder.Default
+    @Column(name = "is_first_login", nullable = false)
+    private Boolean isFirstLogin = true;
 }

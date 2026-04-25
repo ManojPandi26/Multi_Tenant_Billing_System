@@ -2,6 +2,9 @@ package com.mtbs.auth.service;
 
 import com.mtbs.auth.dto.auth.AuthResponse;
 import com.mtbs.auth.dto.auth.SignupRequest;
+import com.mtbs.auth.dto.auth.TokenPair;
+import com.mtbs.shared.constant.CookieConstants;
+import com.mtbs.shared.util.CookieUtils;
 import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.entity.TenantOnboarding;
 import com.mtbs.tenant.entity.Tenant;
@@ -18,8 +21,10 @@ import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantOnboardingRepository;
 import com.mtbs.tenant.repository.TenantRepository;
 import com.mtbs.tenant.service.TenantFlywayMigrationService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,8 +56,9 @@ public class SignupService {
     private final TenantFlywayMigrationService tenantFlywayMigrationService;
     private final TenantAuthService tenantScopedAuthService;
     private final OutboxEventPublisher outboxEventPublisher;
+    private final CookieUtils cookieUtils;
 
-    public AuthResponse signup(SignupRequest request) {
+    public AuthResponse signup(SignupRequest request, HttpServletResponse response) {
         log.info("New signup request for email={}", request.getEmail());
 
         // 1. Email uniqueness check in public schema lookup table
@@ -81,7 +87,13 @@ public class SignupService {
         TenantContext.setCurrentSchema(tenant.getSchemaName());
 
         // 6. Create ROLE_OWNER user in the tenant schema and return JWT
-        AuthResponse authResponse = tenantScopedAuthService.createOwnerUserForSignup(request, tenant);
+        TokenPair tokenPair = TokenPair.builder().build();
+        AuthResponse authResponse = tenantScopedAuthService.createOwnerUserForSignup(request, tenant, tokenPair);
+
+        // Set HttpOnly cookies
+        if (tokenPair.getAccessToken() != null && tokenPair.getRefreshToken() != null) {
+            cookieUtils.addAuthCookies(response, tokenPair.getAccessToken(), tokenPair.getRefreshToken());
+        }
 
         // 7. Create onboarding record in public schema (after JWT is issued)
         saveOnboardingRecord(tenant.getId());

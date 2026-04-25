@@ -17,16 +17,18 @@ public class UserPrincipal implements UserDetails {
     private final String password;
     private final Long tenantId;
     private final String schemaName;
+    private final Long roleId;
     private final String role;
     private final Collection<? extends GrantedAuthority> authorities;
 
     public UserPrincipal(Long id, String email, String password, Long tenantId,
-                         String schemaName, String role, List<String> permissions) {
+                         String schemaName, Long roleId, String role, List<String> permissions) {
         this.id = id;
         this.email = email;
         this.password = password;
         this.tenantId = tenantId;
         this.schemaName = schemaName;
+        this.roleId = roleId;
         this.role = role;
         this.authorities = permissions.stream()
                 .map(SimpleGrantedAuthority::new)

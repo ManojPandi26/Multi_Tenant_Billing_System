@@ -26,7 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/${api.version}/reports")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('BILLING_MANAGE')")
+@PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
 @Tag(name = "Business Reports", description = "Revenue, outstanding, and monthly summary reports")
 @SecurityRequirement(name = "bearerAuth")
 public class BusinessReportController {

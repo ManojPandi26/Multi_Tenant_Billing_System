@@ -7,6 +7,8 @@ import com.mtbs.auth.dto.auth.LogoutRequest;
 import com.mtbs.auth.dto.auth.RefreshTokenRequest;
 import com.mtbs.auth.dto.auth.ResetPasswordRequest;
 import com.mtbs.auth.dto.auth.SignupRequest;
+import com.mtbs.auth.dto.auth.TenantResolutionRequest;
+import com.mtbs.auth.dto.auth.TenantResolutionResponse;
 import com.mtbs.auth.dto.auth.UserProfileResponse;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.auth.service.AuthService;
@@ -48,23 +50,45 @@ public class AuthController {
     @Operation(
             summary = "Create account — Phase 0 of onboarding",
             description = "Creates a tenant account, provisions the PostgreSQL schema, creates the " +
-                    "ROLE_OWNER user, and returns a JWT. Tenant status is PENDING_ONBOARDING. " +
-                    "Frontend must redirect to /onboarding after this call."
+                    "ROLE_OWNER user, and returns user/tenant info. Tokens are set via HttpOnly, Secure, SameSite=Lax cookies. " +
+                    "Tenant status is PENDING_ONBOARDING. Frontend must redirect to /onboarding after this call."
     )
     public ResponseEntity<ApiResponse<AuthResponse>> signup(
             @Valid @RequestBody SignupRequest request,
             HttpServletResponse response) {
 
-        AuthResponse result = signupService.signup(request);
-        cookieUtils.addAuthCookies(response, result.getAccessToken(), result.getRefreshToken());
+        AuthResponse result = signupService.signup(request, response);
+        
+        // Note: SignupService will have already set the HttpOnly cookies if tokens were generated.
+        // Controller just needs to return the response without tokens.
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(result, "Account created. Please complete onboarding."));
+    }
+
+    // ── POST /api/auth/tenants ─────────────────────────────────────────────────
+
+    @PostMapping("/tenants")
+    @Operation(
+            summary = "Resolve tenant workspaces for an email address",
+            description = "Returns tenant slugs associated with this email. " +
+                    "Used for two-step login UX. Always returns 200 to prevent email enumeration."
+    )
+    public ResponseEntity<ApiResponse<TenantResolutionResponse>> resolveTenantsForEmail(
+            @Valid @RequestBody TenantResolutionRequest request) {
+
+        var tenants = authService.resolveTenantsForEmail(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success(
+                TenantResolutionResponse.fromOptions(tenants),
+                "Tenants resolved"));
     }
 
     // ── POST /api/auth/login ──────────────────────────────────────────────────
 
     @PostMapping("/login")
-    @Operation(summary = "Authenticate a user within a specific tenant")
+    @Operation(
+            summary = "Tenant user login",
+            description = "Authenticates tenant user. Tokens are set via HttpOnly, Secure, SameSite=Lax cookies. " +
+                    "No tokens returned in response body.")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest,
@@ -77,7 +101,7 @@ public class AuthController {
 
         AuthResponse result;
         try {
-            result = authService.login(request, ip, httpRequest.getHeader("User-Agent"));
+            result = authService.login(request, ip, httpRequest.getHeader("User-Agent"), response);
         } catch (Exception e) {
             // Credential failure or any auth error — record the attempt
             // NOTE: recordFailure() will itself throw 429 if threshold is hit
@@ -87,7 +111,6 @@ public class AuthController {
 
         // 2. Login succeeded — clear failure counter for this IP
         loginRateLimiter.clearFailures(ip);
-        cookieUtils.addAuthCookies(response, result.getAccessToken(), result.getRefreshToken());
         return ResponseEntity.ok(ApiResponse.success(result, "Login successful"));
     }
 
@@ -96,8 +119,9 @@ public class AuthController {
     @PostMapping("/refresh")
     @Operation(
             summary = "Refresh access token",
-            description = "Issues a new access token using a valid refresh token. " +
-                    "Token is read from the HttpOnly cookie if present, otherwise from request body."
+            description = "Issues new access token using refresh token from cookie. " +
+                    "Rotates refresh token. Tokens are set via HttpOnly, Secure, SameSite=Lax cookies. " +
+                    "No tokens returned in response body."
     )
     public ResponseEntity<ApiResponse<AuthResponse>> refreshAccessToken(
             @RequestBody(required = false) RefreshTokenRequest request,
@@ -108,13 +132,7 @@ public class AuthController {
             request = new RefreshTokenRequest();
         }
 
-        String cookieToken = cookieUtils.extractRefreshToken(httpRequest).orElse(null);
-        if (StringUtils.hasText(cookieToken)) {
-            request.setRefreshToken(cookieToken);
-        }
-
-        AuthResponse result = authService.refreshAccessToken(request);
-        cookieUtils.addAuthCookies(response, result.getAccessToken(), result.getRefreshToken());
+        AuthResponse result = authService.refreshAccessToken(request, httpRequest, response);
         return ResponseEntity.ok(ApiResponse.success(result, "Token refreshed successfully"));
     }
 
@@ -123,7 +141,7 @@ public class AuthController {
     @PostMapping("/logout")
     @Operation(
             summary = "Logout",
-            description = "Revokes the refresh token and clears auth cookies."
+            description = "Revokes refresh token and clears HttpOnly auth cookies."
     )
     public ResponseEntity<ApiResponse<Void>> logout(
             @RequestBody(required = false) LogoutRequest request,
@@ -132,20 +150,25 @@ public class AuthController {
 
         String tokenToRevoke = null;
 
+        // Try to extract refresh token from cookie (HttpOnly)
         String cookieToken = cookieUtils.extractRefreshToken(httpRequest).orElse(null);
         if (StringUtils.hasText(cookieToken)) {
             tokenToRevoke = cookieToken;
         } else if (request != null && StringUtils.hasText(request.getRefreshToken())) {
+            // Fallback: try request body (API clients, not browser)
             tokenToRevoke = request.getRefreshToken();
         }
 
         if (tokenToRevoke != null) {
             String ip = getClientIp(httpRequest);
             String userAgent = httpRequest.getHeader("User-Agent");
-            authService.logout(new LogoutRequest(tokenToRevoke), SecurityUtils.getCurrentTenantId(), ip, userAgent);
+            authService.logout(new LogoutRequest(tokenToRevoke), SecurityUtils.getCurrentTenantId(), ip, userAgent, httpRequest, response);
+        } else {
+            // Even if no token to revoke, still clear cookies
+            // This handles edge case: user closed browser, or cookies already expired
+            cookieUtils.clearAuthCookies(response);
         }
 
-        cookieUtils.clearAuthCookies(response);
         return ResponseEntity.ok(ApiResponse.success(null, "Logged out successfully"));
     }
 
@@ -175,7 +198,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPassword(
             @Valid @RequestBody ForgotPasswordRequest request) {
 
-        passwordResetService.requestPasswordReset(request.getTenantId(), request.getEmail());
+        passwordResetService.requestPasswordReset(request.getTenantSlug(), request.getEmail());
         return ResponseEntity.ok(ApiResponse.success(null,
                 "If that email is registered, a reset link has been sent."));
     }
@@ -196,7 +219,7 @@ public class AuthController {
 
         String ip = getClientIp(httpRequest);
         passwordResetService.resetPassword(
-                request.getTenantId(),
+                request.getTenantSlug(),
                 request.getToken(),
                 request.getNewPassword(),
                 ip,

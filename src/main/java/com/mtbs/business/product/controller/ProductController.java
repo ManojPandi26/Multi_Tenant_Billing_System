@@ -45,7 +45,7 @@ public class ProductController {
 
     @PostMapping
     @TrackUsage(metric = UsageMetric.API_CALLS)
-    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "Create a product",
         description = "Adds a new product or service to the catalog. " +
@@ -65,7 +65,7 @@ public class ProductController {
     // ── GET /api/products ─────────────────────────────────────────────────────
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "List products",
         description = "Returns a paginated list of all products (active and inactive). " +
@@ -85,7 +85,7 @@ public class ProductController {
     // ── GET /api/products/active ──────────────────────────────────────────────
 
     @GetMapping("/active")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
         summary = "List active products for invoice",
         description = "Returns all active products ordered alphabetically. " +
@@ -101,7 +101,7 @@ public class ProductController {
     // ── GET /api/products/{id} ────────────────────────────────────────────────
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "Get product by ID",
         description = "Returns a single product record including deactivated products. " +
@@ -117,7 +117,7 @@ public class ProductController {
 
     @PutMapping("/{id}")
     @TrackUsage(metric = UsageMetric.API_CALLS)
-    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "Update a product",
         description = "Updates product fields. All fields are optional — send only what changed. " +
@@ -137,7 +137,7 @@ public class ProductController {
     // ── DELETE /api/products/{id} ─────────────────────────────────────────────
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "Deactivate a product",
         description = "Deactivates a product — it can no longer be added to new invoices. " +
@@ -153,7 +153,7 @@ public class ProductController {
     // ── POST /api/products/{id}/reactivate ────────────────────────────────────
 
     @PostMapping("/{id}/reactivate")
-    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "Reactivate a product",
         description = "Re-enables a previously deactivated product so it can be added " +

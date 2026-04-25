@@ -4,6 +4,7 @@ import com.mtbs.admin.dto.AdminTenantDetailResponse;
 import com.mtbs.admin.dto.AdminTenantListResponse;
 import com.mtbs.admin.dto.ChangeTenantPlanRequest;
 import com.mtbs.admin.dto.ChangeTenantStatusRequest;
+import com.mtbs.auth.service.PermissionCacheService;
 import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.auth.dto.user.UserResponse;
@@ -44,6 +45,7 @@ public class AdminTenantService {
     private final JdbcTemplate jdbcTemplate;
     private final OutboxEventPublisher outboxEventPublisher;
     private final TenantMapper tenantMapper;
+    private final PermissionCacheService permissionCacheService;
 
     @Transactional(readOnly = true)
     public Page<AdminTenantListResponse> getAllTenants(Status status, PlanType planType, Pageable pageable) {
@@ -94,6 +96,8 @@ public class AdminTenantService {
 
         tenant.setStatus(request.getStatus());
         tenant = tenantRepository.save(tenant);
+
+        permissionCacheService.evictTenant(tenant.getSchemaName());
 
         outboxEventPublisher.save(AuditLogEvent.builder()
                 .action(AuditAction.STATUS_CHANGE)

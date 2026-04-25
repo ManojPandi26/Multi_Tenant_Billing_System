@@ -34,7 +34,7 @@ public class PaymentController {
     // ── POST /api/payments/process/{invoiceId} ────────────────────────────────
 
     @PostMapping("/process/{invoiceId}")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Initiate payment for an invoice",
             description = "Creates a Razorpay order for the given invoice and stores a payment record " +
@@ -53,7 +53,7 @@ public class PaymentController {
     // ── POST /api/payments/verify ─────────────────────────────────────────────
 
     @PostMapping("/verify")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Verify and capture payment",
             description = "Verifies the Razorpay payment signature after the user completes checkout. " +
@@ -72,7 +72,7 @@ public class PaymentController {
     // ── POST /api/payments/{id}/retry ─────────────────────────────────────────
 
     @PostMapping("/{id}/retry")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Retry a failed payment",
             description = "Creates a new Razorpay order for a previously failed payment. " +
@@ -90,7 +90,7 @@ public class PaymentController {
     // ── POST /api/payments/{id}/refund ────────────────────────────────────────
 
     @PostMapping("/{id}/refund")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Refund a payment",
             description = "Initiates a full or partial refund via Razorpay for a SUCCEEDED payment. " +
@@ -109,7 +109,7 @@ public class PaymentController {
     // ── GET /api/payments/{id} ────────────────────────────────────────────────
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Get payment by ID",
             description = "Returns a single payment record by its ID. " +
@@ -125,7 +125,7 @@ public class PaymentController {
     // ── GET /api/payments/invoice/{invoiceId} ─────────────────────────────────
 
     @GetMapping("/invoice/{invoiceId}")
-    @PreAuthorize("hasAuthority('BILLING_MANAGE')")
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Get all payments for an invoice",
             description = "Returns all payment attempts (including failed and retried) for a specific invoice. " +
