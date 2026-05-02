@@ -249,6 +249,11 @@ public class CookieUtils {
      * Used for SUPER_ADMIN logout.
      */
     public void clearAdminAuthCookies(HttpServletResponse response) {
+        ResponseCookie clearAdminAuthCookie = clearCookie(
+                CookieConstants.ACCESS_TOKEN_COOKIE,
+                CookieConstants.ACCESS_PATH);
+        response.addHeader(HttpHeaders.SET_COOKIE, clearAdminAuthCookie.toString());
+
         ResponseCookie clearAdminRefreshCookie = clearCookie(
                 CookieConstants.REFRESH_TOKEN_COOKIE,
                 CookieConstants.ADMIN_REFRESH_PATH);
