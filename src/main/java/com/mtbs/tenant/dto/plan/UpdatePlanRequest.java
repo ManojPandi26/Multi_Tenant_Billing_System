@@ -8,8 +8,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.math.BigDecimal;
+import java.util.List;
 
+/**
+ * Request DTO for updating an existing plan.
+ * All fields are optional: null means "do not change", empty collections mean "do not change".
+ */
 @Getter
 @Setter
 @Builder
@@ -17,33 +21,36 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class UpdatePlanRequest {
 
+    private String code;
+
     @Size(max = 100, message = "Display name must not exceed 100 characters")
     private String displayName;
 
     @Size(max = 500, message = "Description must not exceed 500 characters")
     private String description;
 
-    @Min(value = 0, message = "Monthly price must be non-negative")
-    private BigDecimal priceMonthly;
+    private Boolean isPublic;
 
-    @Min(value = 0, message = "Annual price must be non-negative")
-    private BigDecimal priceAnnual;
+    @Min(value = 0, message = "Sort order must be non-negative")
+    private Integer sortOrder;
 
-    @Size(max = 3, message = "Currency code must be 3 characters")
-    private String currency;
-
-    @Min(value = 0, message = "Trial days must be non-negative")
-    private Integer trialDays;
-
-    @Min(value = 1, message = "Max users must be at least 1")
-    private Integer maxUsers;
-
-    @Min(value = 0, message = "Max API calls must be non-negative")
-    private Long maxApiCallsPerMonth;
-
-    @Min(value = 0, message = "Max storage must be non-negative")
-    private Integer maxStorageGb;
+    private String badge;
 
     private Boolean isActive;
-    private Boolean isPublic;
+
+    /**
+     * Pricing rows to update/replace. Null or empty means "do not change".
+     * If provided, replaces existing pricing rows for this plan.
+     */
+    private List<CreatePlanPricingRequest> pricing;
+
+    /**
+     * Features to update/replace. Null or empty means "do not change".
+     */
+    private List<CreatePlanFeatureRequest> features;
+
+    /**
+     * Limits to update/replace. Null or empty means "do not change".
+     */
+    private List<CreatePlanLimitRequest> limits;
 }
