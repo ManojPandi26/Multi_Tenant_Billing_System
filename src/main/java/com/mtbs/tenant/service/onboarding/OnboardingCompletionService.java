@@ -101,7 +101,7 @@ public class OnboardingCompletionService {
     public void activateTenant(Tenant tenant, TenantOnboarding onboarding, Plan plan) {
         tenant.setStatus(Status.ACTIVE);
         tenant.setOnboardingStep(3);
-        tenant.setPlanType(PlanType.valueOf(plan.getName()));
+        tenant.setPlanType(PlanType.valueOf(plan.getCode()));
         tenantRepository.save(tenant);
 
         onboarding.setCompletedAt(Instant.now());

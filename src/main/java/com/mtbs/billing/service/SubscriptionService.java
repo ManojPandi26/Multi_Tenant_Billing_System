@@ -686,7 +686,7 @@ public class SubscriptionService {
         Plan plan = planService.getPlanById(planId);
         Instant now = Instant.now();
 
-        if (plan.getTrialDays() == null || plan.getTrialDays() == 0) {
+        if (planService.getTrialDaysForPlan(plan.getId(), BillingCycle.MONTHLY) == null || planService.getTrialDaysForPlan(plan.getId(), BillingCycle.MONTHLY) == 0) {
             Subscription sub = Subscription.builder()
                     .planId(planId)
                     .status(SubscriptionStatus.ACTIVE)
@@ -702,13 +702,13 @@ public class SubscriptionService {
                 .status(SubscriptionStatus.TRIALING)
                 .billingCycle(BillingCycle.MONTHLY)
                 .trialStart(now)
-                .trialEnd(now.plus(Duration.ofDays(plan.getTrialDays())))
+                .trialEnd(now.plus(Duration.ofDays(planService.getTrialDaysForPlan(plan.getId(), BillingCycle.MONTHLY))))
                 .currentPeriodStart(now)
-                .currentPeriodEnd(now.plus(Duration.ofDays(plan.getTrialDays())))
+                .currentPeriodEnd(now.plus(Duration.ofDays(planService.getTrialDaysForPlan(plan.getId(), BillingCycle.MONTHLY))))
                 .build();
 
         Subscription saved = subscriptionRepository.save(sub);
-        log.info("Trial started — plan={}, days={}", plan.getName(), plan.getTrialDays());
+        log.info("Trial started — plan={}, days={}", plan.getName(), planService.getTrialDaysForPlan(plan.getId(), BillingCycle.MONTHLY));
         fireSimpleEvent(NotificationEvent.TRIAL_STARTED, plan, saved);
 
         outboxEventPublisher.save(AuditLogEvent.builder()
@@ -771,7 +771,9 @@ public class SubscriptionService {
     public SubscriptionResponse mapToSubscriptionResponse(Subscription sub) {
         Plan plan = planService.getPlanById(sub.getPlanId());
         SubscriptionResponse response = subscriptionMapper.toResponseWithPlan(sub, plan);
-
+        response.setPriceMonthly(planService.getPriceMonthly(plan.getId()));
+        response.setPriceAnnual(planService.getPriceAnnual(plan.getId()));
+        response.setCurrency(planService.getCurrencyForPlan(plan.getId()));
         if (sub.getStatus() == SubscriptionStatus.TRIALING && sub.getTrialEnd() != null) {
             long days = ChronoUnit.DAYS.between(Instant.now(), sub.getTrialEnd());
             response.setTrialDaysRemaining(Math.max(days, 0));
@@ -863,7 +865,7 @@ public class SubscriptionService {
         BigDecimal prorationCredit = null;
         if (!"FREE".equalsIgnoreCase(planService.getPlanById(subscription.getPlanId()).getName())) {
             BigDecimal fullPrice = cycle == BillingCycle.MONTHLY
-                    ? targetPlan.getPriceMonthly() : targetPlan.getPriceAnnual();
+                    ? planService.getPriceMonthly(targetPlan.getId()) : planService.getPriceAnnual(targetPlan.getId());
             if (fullPrice != null && chargeAmount.compareTo(fullPrice) < 0) {
                 prorationCredit = fullPrice.subtract(chargeAmount);
             }
@@ -948,7 +950,7 @@ public class SubscriptionService {
                     .recipientEmail(tenant != null ? tenant.getOwnerEmail() : null)
                     .recipientName(tenant != null ? tenant.getName() : null)
                     .planName(plan.getDisplayName())
-                    .planPrice(plan.getPriceMonthly())
+                    .planPrice(planService.getPriceMonthly(plan.getId()))
                     .billingCycle(sub.getBillingCycle() != null ? sub.getBillingCycle().name() : null)
                     .trialEndsAt(sub.getTrialEnd())
                     .subscriptionEndsAt(sub.getCurrentPeriodEnd())
@@ -972,7 +974,7 @@ public class SubscriptionService {
                     .recipientName(tenant != null ? tenant.getName() : null)
                     .planName(newPlan.getDisplayName())
                     .oldPlanName(oldPlan.getDisplayName())
-                    .planPrice(newPlan.getPriceMonthly())
+                    .planPrice(planService.getPriceMonthly(newPlan.getId()))
                     .billingCycle(sub.getBillingCycle().name())
                     .nextBillingDate(sub.getCurrentPeriodEnd())
                     .build(), "Subscription", sub.getId());

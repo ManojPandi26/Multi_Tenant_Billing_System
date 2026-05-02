@@ -13,6 +13,7 @@ import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.enums.billing.UsageMetric;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.repository.PlanRepository;
+import com.mtbs.tenant.service.PlanService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ public class UsageService {
     private final UserRepository userRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
+    private final PlanService planService;
 
     @Transactional
     public void recordApiCall(Long tenantId, Long subscriptionId, Instant periodStart, Instant periodEnd) {
@@ -98,9 +100,9 @@ public class UsageService {
         if (subscription != null) {
             Plan plan = planRepository.findById(subscription.getPlanId()).orElse(null);
             if (plan != null) {
-                apiCallsLimit = plan.getMaxApiCallsPerMonth();
-                storageLimitGb = plan.getMaxStorageGb() != null ? plan.getMaxStorageGb().longValue() : null;
-                usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers().longValue() : null;
+                apiCallsLimit = planService.getMaxApiCallsPerMonth(plan.getId());
+                storageLimitGb = planService.getMaxStorageGb(plan.getId()) != null ? planService.getMaxStorageGb(plan.getId()).longValue() : null;
+                usersLimit = planService.getMaxUsers(plan.getId()) != null ? planService.getMaxUsers(plan.getId()).longValue() : null;
             }
         }
 
@@ -231,7 +233,7 @@ public class UsageService {
         Instant periodStart = subscription.getCurrentPeriodStart();
 
         long apiCallsUsed = getApiCallCount(tenantId, periodStart);
-        long apiCallsLimit = plan.getMaxApiCallsPerMonth() != null ? plan.getMaxApiCallsPerMonth() : -1L;
+        long apiCallsLimit = planService.getMaxApiCallsPerMonth(plan.getId()) != null ? planService.getMaxApiCallsPerMonth(plan.getId()) : -1L;
         boolean apiCallsUnlimited = apiCallsLimit == -1L;
         long apiCallsRemaining = apiCallsUnlimited ? 0 : Math.max(0, apiCallsLimit - apiCallsUsed);
         double apiCallsUsagePercent = apiCallsLimit > 0
@@ -239,7 +241,7 @@ public class UsageService {
         double apiCallsRemainingPercent = Math.round((100.0 - apiCallsUsagePercent) * 100.0) / 100.0;
 
         long activeUsersCount = getActiveUserCount(tenantId);
-        long usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers() : -1L;
+        long usersLimit = planService.getMaxUsers(plan.getId()) != null ? planService.getMaxUsers(plan.getId()) : -1L;
         boolean usersUnlimited = usersLimit == -1L;
         long usersRemaining = usersUnlimited ? 0 : Math.max(0, usersLimit - activeUsersCount);
         double usersUsagePercent = usersLimit > 0
@@ -254,7 +256,7 @@ public class UsageService {
         BigDecimal storageUsedMb = storageUsedBytesBd.divide(bytesPerMb, 6, RoundingMode.HALF_UP);
         BigDecimal storageUsedGb = storageUsedBytesBd.divide(bytesPerGb, 6, RoundingMode.HALF_UP);
         
-        long storageLimitGb = plan.getMaxStorageGb() != null ? plan.getMaxStorageGb() : -1L;
+        long storageLimitGb = planService.getMaxStorageGb(plan.getId()) != null ? planService.getMaxStorageGb(plan.getId()) : -1L;
         boolean storageUnlimited = storageLimitGb == -1L;
         
         BigDecimal storageLimitGbBd = BigDecimal.valueOf(storageLimitGb);

@@ -266,11 +266,11 @@ public class ProrationService {
      */
     private BigDecimal resolveFullCyclePrice(Plan plan, BillingCycle cycle) {
         BigDecimal price = switch (cycle) {
-            case MONTHLY -> plan.getPriceMonthly();
-            case ANNUAL  -> plan.getPriceAnnual();
+            case MONTHLY -> planService.getPriceMonthly(plan.getId());
+            case ANNUAL  -> planService.getPriceAnnual(plan.getId());
         };
 
-        if (price == null) {
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
             throw ResourceException.invalid(
                     "Plan '" + plan.getName() + "' has no price configured for cycle: " + cycle);
         }
@@ -306,8 +306,8 @@ public class ProrationService {
      * has a null currency column.
      */
     private String resolveCurrency(Plan plan) {
-        return (plan.getCurrency() != null && !plan.getCurrency().isBlank())
-                ? plan.getCurrency()
+        return (planService.getCurrencyForPlan(plan.getId()) != null && planService.getCurrencyForPlan(plan.getId()).isBlank())
+                ? planService.getCurrencyForPlan(plan.getId())
                 : "INR";
     }
 

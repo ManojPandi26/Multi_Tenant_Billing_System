@@ -18,6 +18,7 @@ import com.mtbs.shared.exception.TenantException;
 import com.mtbs.tenant.repository.PlanRepository;
 import com.mtbs.tenant.repository.TenantOnboardingRepository;
 import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.PlanService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,7 @@ public class OnboardingService {
     private final TenantRepository tenantRepository;
     private final TenantOnboardingRepository onboardingRepository;
     private final PlanRepository planRepository;
+    private final PlanService planService;
     private final OnboardingScopedService onboardingScopedService;
     private final OnboardingCompletionService onboardingCompletionService;
 
@@ -171,7 +173,7 @@ public class OnboardingService {
 
         onboardingCompletionService.completeOnboarding(tenantId, plan, request.getBillingCycle());
 
-        int trialDays = plan.getTrialDays() != null ? plan.getTrialDays() : 0;
+        int trialDays = planService.getTrialDaysForPlan(plan.getId(), BillingCycle.MONTHLY);
         
         log.info("Onboarding completed with trial for tenantId={}, plan={}, trialDays={}", 
                 tenantId, plan.getName(), trialDays);
@@ -234,8 +236,8 @@ public class OnboardingService {
             
             if (plan != null && onboarding.getSelectedBillingCycle() != null) {
                 amountPaise = onboarding.getSelectedBillingCycle() == BillingCycle.MONTHLY
-                        ? plan.getPriceMonthly().multiply(java.math.BigDecimal.valueOf(100)).longValue()
-                        : plan.getPriceAnnual().multiply(java.math.BigDecimal.valueOf(100)).longValue();
+                        ? planService.getPriceMonthly(plan.getId()).multiply(java.math.BigDecimal.valueOf(100)).longValue()
+                        : planService.getPriceAnnual(plan.getId()).multiply(java.math.BigDecimal.valueOf(100)).longValue();
             }
             
             step3 = OnboardingStatusResponse.Step3Summary.builder()
