@@ -42,9 +42,8 @@ public interface SubscriptionMapper {
         if (plan != null) {
             response.setPlanName(plan.getName());
             response.setPlanDisplayName(plan.getDisplayName());
-            response.setPriceMonthly(plan.getPriceMonthly());
-            response.setPriceAnnual(plan.getPriceAnnual());
-            response.setCurrency(plan.getCurrency() != null ? plan.getCurrency() : "INR");
+            // Note: Pricing fields (priceMonthly, priceAnnual, currency) are set by SubscriptionService
+            // after calling this mapper, using PlanService helper methods
         }
 
         response.setUpgradePending(entity.hasUpgradePending());

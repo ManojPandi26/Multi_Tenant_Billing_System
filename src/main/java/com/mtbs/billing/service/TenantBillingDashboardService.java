@@ -131,18 +131,18 @@ public class TenantBillingDashboardService {
         }
 
         BigDecimal currentPeriodCost = sub.getStatus() == SubscriptionStatus.ACTIVE
-                ? plan.getPriceMonthly() : BigDecimal.ZERO;
+                ? planService.getPriceMonthly(plan.getId()) : BigDecimal.ZERO;
         
-        String currency = plan.getCurrency() != null ? plan.getCurrency() : "INR";
+        String currency = planService.getCurrencyForPlan(plan.getId());
         String currencySymbol = getCurrencySymbol(currency);
 
         return TenantBillingDashboard.CostSummary.builder()
-                .planPrice(plan.getPriceMonthly())
+                .planPrice(planService.getPriceMonthly(plan.getId()))
                 .currency(currency)
                 .currencySymbol(currencySymbol)
                 .billingCycle(sub.getBillingCycle() != null ? sub.getBillingCycle().name() : null)
                 .currentPeriodCost(currentPeriodCost)
-                .nextInvoiceEstimate(plan.getPriceMonthly())
+                .nextInvoiceEstimate(planService.getPriceMonthly(plan.getId()))
                 .trialRemainingDays(trialDaysRemaining)
                 .build();
     }
@@ -152,11 +152,11 @@ public class TenantBillingDashboardService {
             return null;
         }
 
-        BigDecimal amount = plan != null ? plan.getPriceMonthly() : BigDecimal.ZERO;
+        BigDecimal amount = plan != null ? planService.getPriceMonthly(plan.getId()) : BigDecimal.ZERO;
         return TenantBillingDashboard.UpcomingBilling.builder()
                 .nextBillingDate(sub.getCurrentPeriodEnd())
                 .estimatedAmount(amount)
-                .currency(plan != null && plan.getCurrency() != null ? plan.getCurrency() : "INR")
+                .currency(plan != null ? planService.getCurrencyForPlan(plan.getId()) : "INR")
                 .autoChargeEnabled(true)
                 .build();
     }
@@ -216,7 +216,7 @@ public class TenantBillingDashboardService {
             log.warn("Could not build payment summary from business tables: {}", e.getMessage());
         }
 
-        String currency = plan != null && plan.getCurrency() != null ? plan.getCurrency() : "INR";
+        String currency = plan != null  ? planService.getCurrencyForPlan(plan.getId()) : "INR";
         String currencySymbol = getCurrencySymbol(currency);
 
         return TenantBillingDashboard.PaymentSummary.builder()

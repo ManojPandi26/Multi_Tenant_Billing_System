@@ -7,7 +7,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Getter
 @Setter
@@ -18,16 +20,33 @@ import java.math.BigDecimal;
 public class PlanResponse {
 
     private Long id;
+
+    private String code;
+
     private String name;
+
     private String displayName;
+
     private String description;
-    private BigDecimal priceMonthly;
-    private BigDecimal priceAnnual;
-    private String currency;
-    private Integer trialDays;
-    private Integer maxUsers;
-    private Long maxApiCallsPerMonth;
-    private Integer maxStorageGb;
+
     private Boolean isActive;
+
     private Boolean isPublic;
+
+    private Integer sortOrder;
+
+    private String badge;
+
+    @Builder.Default
+    private List<PlanPricingResponse> pricing = new ArrayList<>();
+
+    @Builder.Default
+    private List<PlanFeatureResponse> features = new ArrayList<>();
+
+    @Builder.Default
+    private List<PlanLimitResponse> limits = new ArrayList<>();
+
+    private Instant createdAt;
+
+    private Instant updatedAt;
 }

@@ -11,6 +11,7 @@ import com.mtbs.shared.enums.billing.UsageMetric;
 import com.mtbs.shared.util.SecurityUtils;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.repository.PlanRepository;
+import com.mtbs.tenant.service.PlanService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -33,6 +34,7 @@ import java.util.List;
 @SecurityRequirement(name = "bearerAuth")
 public class UsageController {
 
+    private final PlanService planService;
     private final UsageService usageService;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
@@ -81,7 +83,7 @@ public class UsageController {
         if (subscription != null) {
             Plan plan = planRepository.findById(subscription.getPlanId()).orElse(null);
             if (plan != null) {
-                usersLimit = plan.getMaxUsers() != null ? plan.getMaxUsers().longValue() : null;
+                usersLimit = planService.getMaxUsers(plan.getId());
             }
         }
         

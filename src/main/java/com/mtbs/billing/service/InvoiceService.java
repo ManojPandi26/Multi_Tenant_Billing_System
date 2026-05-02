@@ -86,8 +86,8 @@ public class InvoiceService {
         Plan plan = planService.getPlanById(subscription.getPlanId());
 
         BigDecimal price = subscription.getBillingCycle().name().equals("ANNUAL")
-                ? plan.getPriceAnnual()
-                : plan.getPriceMonthly();
+                ? planService.getPriceAnnual(plan.getId())
+                : planService.getPriceMonthly(plan.getId());
 
         Invoice invoice = Invoice.builder()
                 .subscriptionId(subscriptionId)
@@ -97,7 +97,7 @@ public class InvoiceService {
                 .taxAmount(BigDecimal.ZERO)
                 .discountAmount(BigDecimal.ZERO)
                 .totalAmount(price)
-                .currency(plan.getCurrency() != null ? plan.getCurrency() : "INR")
+                .currency(planService.getCurrencyForPlan(plan.getId()))
                 .billingPeriodStart(periodStart)
                 .billingPeriodEnd(periodEnd)
                 .build();
