@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS public.platform_admins (
 INSERT INTO public.platform_admins (email, password, name, role)
 VALUES (
     'admin@platform.com',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+    '$2a$10$n5yCz8yCTd65uAPmJfkji.GrochuM5Iz0GhH1Zvv7GQ6LKNk/W2KW',
     'Platform Administrator',
     'SUPER_ADMIN'
 )
