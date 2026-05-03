@@ -9,7 +9,6 @@ import com.mtbs.shared.dto.common.PageResponse;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.shared.enums.auth.Status;
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.admin.service.AdminTenantService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -48,18 +47,18 @@ public class AdminTenantController {
             summary = "List all tenants",
             description = "Returns a paginated list of all tenants. " +
                     "Optionally filter by status (ACTIVE, SUSPENDED, PENDING_ONBOARDING, etc.) " +
-                    "and/or plan (FREE, PRO, ENTERPRISE)."
+                    "and/or plan ID."
     )
     public ResponseEntity<ApiResponse<PageResponse<AdminTenantListResponse>>> getAllTenants(
             @Parameter(description = "Filter by tenant status")
             @RequestParam(required = false) Status status,
 
-            @Parameter(description = "Filter by plan type")
-            @RequestParam(required = false) PlanType planType,
+            @Parameter(description = "Filter by plan ID")
+            @RequestParam(required = false) Long planId,
 
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
-        Page<AdminTenantListResponse> response = adminTenantService.getAllTenants(status, planType, pageable);
+        Page<AdminTenantListResponse> response = adminTenantService.getAllTenants(status, planId, pageable);
         return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Tenants fetched successfully"));
     }
 
@@ -99,7 +98,7 @@ public class AdminTenantController {
     @PutMapping("/{id}/plan")
     @Operation(
             summary = "Change tenant plan",
-            description = "Overrides a tenant's plan type directly from the admin panel. " +
+            description = "Overrides a tenant's plan directly from the admin panel. " +
                     "This does not create a subscription — use this for manual plan overrides only."
     )
     public ResponseEntity<ApiResponse<TenantResponse>> changeTenantPlan(

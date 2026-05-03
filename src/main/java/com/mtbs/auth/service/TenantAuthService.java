@@ -7,7 +7,6 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.auth.entity.User;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.notification.NotificationEvent;
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.auth.AuthNotificationEvent;
 import com.mtbs.shared.event.audit.AuditLogEvent;
@@ -91,7 +90,7 @@ public class TenantAuthService {
         tokenPair.setRefreshToken(refreshTokenService.createRefreshToken(savedUser).getToken());
 
         long expiresIn = jwtTokenProvider.getJwtExpiration() / 1000;
-        boolean isTrial = tenant.getPlanType() == PlanType.FREE;
+        boolean isTrial = tenant.getPlan() != null && "FREE".equals(tenant.getPlan().getCode());
         boolean requiresOnboarding = tenant.getOnboardingStep() == null || tenant.getOnboardingStep() < 3;
 
         log.info("ROLE_OWNER created with userId={} for tenantId={}", savedUser.getId(), tenant.getId());
@@ -148,7 +147,7 @@ public class TenantAuthService {
                 .map(name -> name.startsWith("PERMISSION_") ? name.substring("PERMISSION_".length()) : name)
                 .collect(Collectors.toList());
 
-        boolean isTrial = tenant.getPlanType() == PlanType.FREE;
+        boolean isTrial = tenant.getPlan() != null && "FREE".equals(tenant.getPlan().getCode());
         boolean requiresOnboarding = tenant.getOnboardingStep() == null || tenant.getOnboardingStep() < 3;
 
         outboxEventPublisher.save(AuthNotificationEvent.builder()
@@ -221,7 +220,7 @@ public class TenantAuthService {
                 .map(name -> name.startsWith("PERMISSION_") ? name.substring("PERMISSION_".length()) : name)
                 .collect(Collectors.toList());
 
-        boolean isTrial = tenant.getPlanType() == PlanType.FREE;
+        boolean isTrial = tenant.getPlan() != null && "FREE".equals(tenant.getPlan().getCode());
         boolean requiresOnboarding = tenant.getOnboardingStep() == null || tenant.getOnboardingStep() < 3;
 
         return AuthResponse.forTenantUser(

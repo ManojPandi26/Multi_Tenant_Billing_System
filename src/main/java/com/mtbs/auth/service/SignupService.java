@@ -5,7 +5,6 @@ import com.mtbs.auth.dto.auth.SignupRequest;
 import com.mtbs.auth.dto.auth.TokenPair;
 import com.mtbs.shared.constant.CookieConstants;
 import com.mtbs.shared.util.CookieUtils;
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.entity.TenantOnboarding;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
@@ -21,6 +20,7 @@ import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantOnboardingRepository;
 import com.mtbs.tenant.repository.TenantRepository;
 import com.mtbs.tenant.service.TenantFlywayMigrationService;
+import com.mtbs.tenant.service.PlanService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +57,7 @@ public class SignupService {
     private final TenantAuthService tenantScopedAuthService;
     private final OutboxEventPublisher outboxEventPublisher;
     private final CookieUtils cookieUtils;
+    private final PlanService planService;
 
     public AuthResponse signup(SignupRequest request, HttpServletResponse response) {
         log.info("New signup request for email={}", request.getEmail());
@@ -113,7 +114,6 @@ public class SignupService {
                 .name(request.getName())
                 .schemaName(schemaName)
                 .slug(provisionalSlug)
-                .planType(PlanType.FREE)
                 .status(Status.PENDING_ONBOARDING)
                 .onboardingStep(0)
                 .ownerEmail(request.getEmail())

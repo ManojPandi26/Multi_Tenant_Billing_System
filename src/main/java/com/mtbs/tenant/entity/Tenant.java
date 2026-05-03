@@ -1,7 +1,6 @@
 package com.mtbs.tenant.entity;
 
 import com.mtbs.shared.entity.AuditableEntity;
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.shared.enums.auth.Status;
 import jakarta.persistence.*;
 import lombok.*;
@@ -25,10 +24,9 @@ public class Tenant extends AuditableEntity {
     @Column(name = "schema_name", nullable = false, unique = true)
     private String schemaName;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "plan_type", nullable = false)
-    @Builder.Default
-    private PlanType planType = PlanType.FREE;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "plan_id")
+    private Plan plan;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

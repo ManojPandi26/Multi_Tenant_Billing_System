@@ -50,8 +50,8 @@ public class AuthService {
         // Step 1: Resolve tenantId from slug (Redis → DB)
         Long tenantId = slugCacheService.resolveTenantId(request.getTenantSlug());
 
-        // Step 2: Load full tenant for status check
-        Tenant tenant = tenantRepository.findById(tenantId)
+        // Step 2: Load full tenant with plan for status check
+        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
         // Hard-block suspended / deactivated tenants only
@@ -113,8 +113,8 @@ public class AuthService {
         // Step 1: Resolve tenantId from slug
         Long tenantId = slugCacheService.resolveTenantId(request.getTenantSlug());
 
-        // Step 2: Load tenant for status check
-        Tenant tenant = tenantRepository.findById(tenantId)
+        // Step 2: Load tenant with plan for status check
+        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
         // Allow refresh for ACTIVE and PENDING_ONBOARDING tenants
@@ -175,7 +175,7 @@ public class AuthService {
             }
         }
 
-        Tenant tenant = tenantRepository.findById(tenantId)
+        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
         Long userId = SecurityUtils.getCurrentUserId();
@@ -202,7 +202,7 @@ public class AuthService {
     public UserProfileResponse getCurrentUserProfile(Long userId, Long tenantId) {
         log.info("Fetching profile for userId={}, tenantId={}", userId, tenantId);
 
-        Tenant tenant = tenantRepository.findById(tenantId)
+        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
         TenantContext.setTenantId(tenant.getId());

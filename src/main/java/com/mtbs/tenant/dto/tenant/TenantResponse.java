@@ -1,7 +1,6 @@
 package com.mtbs.tenant.dto.tenant;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.shared.enums.auth.Status;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,7 +21,9 @@ public class TenantResponse {
     private Long id;
     private String name;
     private String schemaName;
-    private PlanType planType;
+    private Long planId;
+    private String planCode;
+    private String planName;
     private Status status;
     private Instant createdAt;
 }

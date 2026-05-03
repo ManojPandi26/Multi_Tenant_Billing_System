@@ -5,10 +5,10 @@ import com.mtbs.admin.dto.AdminTenantListResponse;
 import com.mtbs.admin.dto.ChangeTenantPlanRequest;
 import com.mtbs.admin.dto.ChangeTenantStatusRequest;
 import com.mtbs.auth.service.PermissionCacheService;
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.auth.dto.user.UserResponse;
 import com.mtbs.tenant.entity.Tenant;
+import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.mapper.TenantMapper;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.event.audit.AuditLogEvent;
@@ -19,6 +19,7 @@ import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantRepository;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.util.SecurityUtils;
+import com.mtbs.tenant.service.PlanService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -46,18 +48,23 @@ public class AdminTenantService {
     private final OutboxEventPublisher outboxEventPublisher;
     private final TenantMapper tenantMapper;
     private final PermissionCacheService permissionCacheService;
+    private final PlanService planService;
 
     @Transactional(readOnly = true)
-    public Page<AdminTenantListResponse> getAllTenants(Status status, PlanType planType, Pageable pageable) {
-        log.info("Admin fetching all tenants. Filters -> status: {}, planType: {}", status, planType);
+    public Page<AdminTenantListResponse> getAllTenants(Status status, Long planId, Pageable pageable) {
+        log.info("Admin fetching all tenants. Filters -> status: {}, planId: {}", status, planId);
 
         Page<Tenant> tenants;
-        if (status != null && planType != null) {
-            tenants = tenantRepository.findByPlanTypeAndStatus(planType, status, pageable);
+        if (status != null && planId != null) {
+            List<Tenant> filtered = tenantRepository.findByPlanIdAndDeletedFalse(planId);
+            List<Tenant> byStatus = tenantRepository.findAllByStatus(status);
+            filtered.retainAll(byStatus);
+            tenants = new org.springframework.data.domain.PageImpl<>(filtered, pageable, filtered.size());
         } else if (status != null) {
             tenants = tenantRepository.findByStatus(status, pageable);
-        } else if (planType != null) {
-            tenants = tenantRepository.findByPlanType(planType, pageable);
+        } else if (planId != null) {
+            List<Tenant> byPlan = tenantRepository.findByPlanIdAndDeletedFalse(planId);
+            tenants = new org.springframework.data.domain.PageImpl<>(byPlan, pageable, byPlan.size());
         } else {
             tenants = tenantRepository.findAll(pageable);
         }
@@ -80,7 +87,9 @@ public class AdminTenantService {
                 .id(tenant.getId())
                 .name(tenant.getName())
                 .schemaName(tenant.getSchemaName())
-                .planType(tenant.getPlanType())
+                .planId(tenant.getPlan() != null ? tenant.getPlan().getId() : null)
+                .planCode(tenant.getPlan() != null ? tenant.getPlan().getCode() : null)
+                .planName(tenant.getPlan() != null ? tenant.getPlan().getName() : null)
                 .status(tenant.getStatus())
                 .userCount(userCount != null ? userCount : 0L)
                 .createdAt(tenant.getCreatedAt())
@@ -120,11 +129,12 @@ public class AdminTenantService {
 
     @Transactional
     public TenantResponse changeTenantPlan(Long tenantId, ChangeTenantPlanRequest request) {
-        log.info("Admin changing tenant plan: {} to {}", tenantId, request.getPlanType());
+        log.info("Admin changing tenant plan: {} to planId={}", tenantId, request.getPlanId());
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> TenantException.notFound(tenantId));
 
-        tenant.setPlanType(request.getPlanType());
+        Plan plan = planService.getPlanById(request.getPlanId());
+        tenant.setPlan(plan);
         tenant = tenantRepository.save(tenant);
 
         outboxEventPublisher.save(AuditLogEvent.builder()
@@ -138,8 +148,8 @@ public class AdminTenantService {
                 .whoRole(SecurityUtils.getCurrentRole())
                 .contextTenantId(tenant.getId())
                 .contextTenantName(tenant.getName())
-                .changesAfter(Map.of("planType", request.getPlanType().name()))
-                .description("Admin changed tenant plan to: " + request.getPlanType())
+                .changesAfter(Map.of("planId", request.getPlanId(), "planCode", plan.getCode()))
+                .description("Admin changed tenant plan to: " + plan.getCode())
                 .module("ADMIN_TENANT_MANAGEMENT")
                 .build(), "Tenant", tenant.getId());
 
@@ -196,7 +206,9 @@ public class AdminTenantService {
                 .id(tenant.getId())
                 .name(tenant.getName())
                 .schemaName(tenant.getSchemaName())
-                .planType(tenant.getPlanType())
+                .planId(tenant.getPlan() != null ? tenant.getPlan().getId() : null)
+                .planCode(tenant.getPlan() != null ? tenant.getPlan().getCode() : null)
+                .planName(tenant.getPlan() != null ? tenant.getPlan().getName() : null)
                 .status(tenant.getStatus())
                 .userCount(userCount != null ? userCount : 0L)
                 .createdAt(tenant.getCreatedAt())

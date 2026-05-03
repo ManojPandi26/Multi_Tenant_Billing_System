@@ -41,5 +41,12 @@ public interface PlanRepository extends JpaRepository<Plan, Long> {
      * @return list of active plans
      */
     List<Plan> findByIsActiveTrueAndDeletedFalse();
+
+    /**
+     * Finds the next higher plan based on sort_order.
+     * @param currentSortOrder the current plan's sort order
+     * @return Optional of the next plan with higher sort order
+     */
+    Optional<Plan> findFirstBySortOrderGreaterThanAndIsActiveTrueAndDeletedFalseOrderBySortOrderAsc(Integer currentSortOrder);
 }
 

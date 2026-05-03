@@ -173,3 +173,22 @@ CREATE INDEX IF NOT EXISTS idx_plan_limits_plan_id
 
 CREATE INDEX IF NOT EXISTS idx_plan_limits_deleted
     ON public.plan_limits (deleted);
+
+-- ───────────────────────────────────────────────────────────────────────────────
+-- FK from tenants.plan_id to plans (after plans table exists)
+-- Using DO $$ block for idempotent constraint addition
+-- ───────────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'fk_tenants_plan_id'
+    ) THEN
+        ALTER TABLE public.tenants
+          ADD CONSTRAINT fk_tenants_plan_id
+          FOREIGN KEY (plan_id) REFERENCES public.plans(id);
+    END IF;
+END $$;
+
+COMMENT ON COLUMN public.tenants.plan_id IS
+  'FK to public.plans — denormalized for fast admin queries and limit checks. Source of truth for billing is subscription.plan_id. Set when tenant subscription is created. NULL until first plan is assigned.';

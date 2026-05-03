@@ -12,7 +12,6 @@ import com.mtbs.business.payment.entity.BusinessPayment;
 import com.mtbs.shared.enums.billing.AlertSeverity;
 import com.mtbs.shared.enums.billing.AlertType;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.shared.util.SecurityUtils;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.service.PlanService;
@@ -287,10 +286,9 @@ public class TenantBillingDashboardService {
             return TenantBillingDashboard.Features.builder().build();
         }
 
-        String planName = plan.getName().toUpperCase();
-        boolean isProOrAbove = planName.equals(PlanType.PRO.name())
-                || planName.equals(PlanType.ENTERPRISE.name());
-        boolean isEnterprise = planName.equals(PlanType.ENTERPRISE.name());
+        String planCode = plan.getCode().toUpperCase();
+        boolean isProOrAbove = "PRO".equals(planCode) || "ENTERPRISE".equals(planCode);
+        boolean isEnterprise = "ENTERPRISE".equals(planCode);
 
         boolean customRoles = isProOrAbove;
         boolean prioritySupport = isProOrAbove;
@@ -313,8 +311,9 @@ public class TenantBillingDashboardService {
 
         if (plan == null) return recommendations;
 
-        String planName = plan.getName().toUpperCase();
-        String suggestedPlan = getNextPlan(planName);
+        String suggestedPlan = planService.getNextPlan(plan.getCode())
+                .map(Plan::getCode)
+                .orElse(null);
 
         if (trialDaysRemaining != null && trialDaysRemaining <= 14) {
             recommendations.add(TenantBillingDashboard.Recommendation.builder()
@@ -340,20 +339,6 @@ public class TenantBillingDashboardService {
         }
 
         return recommendations;
-    }
-
-    private String getNextPlan(String currentPlanName) {
-        PlanType planTypeEnum;
-        try {
-            planTypeEnum = PlanType.valueOf(currentPlanName);
-        } catch (IllegalArgumentException e) {
-            return PlanType.PRO.name();
-        }
-        return switch (planTypeEnum) {
-            case FREE -> PlanType.PRO.name();
-            case PRO -> PlanType.ENTERPRISE.name();
-            case ENTERPRISE -> PlanType.ENTERPRISE.name();
-        };
     }
 
     private TenantBillingDashboard.TenantHealth computeTenantHealth(

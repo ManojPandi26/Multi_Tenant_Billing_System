@@ -72,7 +72,8 @@ public class AdminMetricsService {
                 }
 
                 // Plan distribution
-                tenantsByPlan.merge(tenant.getPlanType().name(), 1L, Long::sum);
+                String planCode = tenant.getPlan() != null ? tenant.getPlan().getCode() : null;
+                tenantsByPlan.merge(planCode != null ? planCode : "NONE", 1L, Long::sum);
 
             } finally {
                 TenantContext.clear();

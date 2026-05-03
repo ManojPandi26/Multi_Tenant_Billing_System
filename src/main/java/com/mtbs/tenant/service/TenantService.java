@@ -1,5 +1,6 @@
 package com.mtbs.tenant.service;
 
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.tenant.dto.tenant.TenantResponse;
 import com.mtbs.tenant.dto.tenant.TenantSchemaInfoResponse;
 import com.mtbs.tenant.dto.tenant.TenantStatusResponse;
@@ -38,7 +39,7 @@ public class TenantService {
         private final TenantRepository tenantRepository;
         private final SubscriptionRepository subscriptionRepository;
         private final JdbcTemplate jdbcTemplate;
-        private final com.mtbs.billing.event.outbox.OutboxEventPublisher outboxEventPublisher;
+        private final OutboxEventPublisher outboxEventPublisher;
         private final TenantMapper tenantMapper;
 
         @Transactional(readOnly = true)
@@ -106,7 +107,7 @@ public class TenantService {
 
                 TenantStatusResponse.TenantStatusResponseBuilder builder = TenantStatusResponse.builder()
                                 .tenantStatus(tenant.getStatus())
-                                .planName(tenant.getPlanType().name())
+                                .planName(tenant.getPlan() != null ? tenant.getPlan().getDisplayName() : null)
                                 .isSuspended(tenant.getStatus() != Status.ACTIVE);
 
                 // Fetch active subscription from the tenant's schema

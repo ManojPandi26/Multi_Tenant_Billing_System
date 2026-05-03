@@ -1,6 +1,5 @@
 package com.mtbs.tenant.service.onboarding;
 
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.entity.TenantOnboarding;
 import com.mtbs.tenant.entity.Tenant;
@@ -101,7 +100,7 @@ public class OnboardingCompletionService {
     public void activateTenant(Tenant tenant, TenantOnboarding onboarding, Plan plan) {
         tenant.setStatus(Status.ACTIVE);
         tenant.setOnboardingStep(3);
-        tenant.setPlanType(PlanType.valueOf(plan.getCode()));
+        tenant.setPlan(plan);
         tenantRepository.save(tenant);
 
         onboarding.setCompletedAt(Instant.now());

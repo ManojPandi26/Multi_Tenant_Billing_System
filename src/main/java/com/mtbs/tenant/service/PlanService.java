@@ -114,6 +114,33 @@ public class PlanService {
     }
 
     /**
+     * Gets a plan entity by code (case-insensitive).
+     * Used by other services that need the Plan entity.
+     */
+    public Plan getPlanEntityByCode(String code) {
+        return planRepository.findByCodeIgnoreCaseAndDeletedFalse(code)
+                .orElseThrow(() -> ResourceException.notFound("Plan", code));
+    }
+
+    /**
+     * Gets the next upgrade plan based on sort_order.
+     * Uses database-driven logic instead of hardcoded strings.
+     * @param currentPlanCode the current plan code (e.g., "FREE", "PRO")
+     * @return Optional of the next plan, or empty if already at highest plan
+     */
+    public Optional<Plan> getNextPlan(String currentPlanCode) {
+        Plan currentPlan = planRepository.findByCodeIgnoreCaseAndDeletedFalse(currentPlanCode)
+                .orElse(null);
+        
+        if (currentPlan == null) {
+            return Optional.empty();
+        }
+        
+        return planRepository.findFirstBySortOrderGreaterThanAndIsActiveTrueAndDeletedFalseOrderBySortOrderAsc(
+                currentPlan.getSortOrder());
+    }
+
+    /**
      * Gets a specific limit for a plan and metric.
      * NEW method used by PlanLimitService.
      */

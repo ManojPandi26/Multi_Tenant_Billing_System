@@ -1,11 +1,12 @@
 package com.mtbs.tenant.repository;
 
-import com.mtbs.shared.enums.plan.PlanType;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -24,18 +25,20 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
 
     List<Tenant> findAllByStatus(Status status);
 
-    Page<Tenant> findByPlanTypeAndStatus(PlanType planType, Status status,
-                                         Pageable pageable);
-
-   Page<Tenant> findByStatus(Status status,
-            Pageable pageable);
-
-    Page<Tenant> findByPlanType(PlanType planType,
-                                Pageable pageable);
+    Page<Tenant> findByStatus(Status status, Pageable pageable);
 
     boolean existsByOwnerEmail(String email);
 
     boolean existsBySlug(String slug);
 
     Optional<Tenant> findBySlug(String slug);
+
+    @Query("SELECT t FROM Tenant t WHERE t.plan.id = :planId AND t.deleted = false")
+    List<Tenant> findByPlanIdAndDeletedFalse(@Param("planId") Long planId);
+
+    @Query("SELECT t FROM Tenant t WHERE t.plan.code = :code AND t.deleted = false")
+    List<Tenant> findByPlanCodeAndDeletedFalse(@Param("code") String code);
+
+    @Query("SELECT t FROM Tenant t LEFT JOIN FETCH t.plan WHERE t.id = :id")
+    Optional<Tenant> findByIdWithPlan(@Param("id") Long id);
 }
