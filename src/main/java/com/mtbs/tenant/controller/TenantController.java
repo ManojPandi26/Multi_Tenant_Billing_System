@@ -31,7 +31,7 @@ public class TenantController {
     @GetMapping
     @Operation(summary = "Get the current tenant's basic details")
     public ResponseEntity<ApiResponse<TenantResponse>> getTenant() {
-        TenantResponse response = tenantService.getTenantById(SecurityUtils.getCurrentTenantId());
+        TenantResponse response = tenantService.getTenantByIdAsResponse(SecurityUtils.getCurrentTenantId());
         return ResponseEntity.ok(ApiResponse.success(response, "Tenant details retrieved"));
     }
 

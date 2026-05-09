@@ -1,7 +1,6 @@
 package com.mtbs.tenant.service;
 
 import com.mtbs.shared.exception.TenantException;
-import com.mtbs.tenant.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.flywaydb.core.Flyway;
@@ -15,7 +14,6 @@ import javax.sql.DataSource;
 public class TenantFlywayMigrationService {
 
     private final DataSource dataSource;
-    private final TenantRepository tenantRepository;
 
     /**
      * Creates a new schema for the tenant and runs all tenant-scoped Flyway

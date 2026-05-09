@@ -26,6 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Handles self-management operations for the currently authenticated Tenant.
@@ -43,18 +46,67 @@ public class TenantService {
         private final TenantMapper tenantMapper;
 
         @Transactional(readOnly = true)
-        public TenantResponse getTenantById(Long tenantId) {
+        public Tenant getTenantById(Long tenantId) {
                 log.info("Fetching tenant details for id: {}", tenantId);
-                Tenant tenant = tenantRepository.findById(tenantId)
+                return tenantRepository.findById(tenantId)
                                 .orElseThrow(() -> TenantException.notFound(tenantId));
+        }
 
-                return tenantMapper.toResponse(tenant);
+        public TenantResponse getTenantByIdAsResponse(Long tenantId) {
+                return tenantMapper.toResponse(this.getTenantByIdWithPlan(tenantId));
         }
 
         public String fetchTenantName() {
                 return tenantRepository.findById(TenantContext.getTenantId())
                         .map(Tenant::getName)
                         .orElse("Unknown");
+        }
+
+        public String getTenantNameById(Long tenantId) {
+                return tenantRepository.findById(tenantId)
+                        .map(Tenant::getName)
+                        .orElse("Unknown");
+        }
+
+        public Tenant getTenantByIdWithPlan(Long tenantId) {
+                log.info("Fetching tenant details with plan for id: {}", tenantId);
+                return tenantRepository.findByIdWithPlan(tenantId)
+                                .orElseThrow(() -> TenantException.notFound(tenantId));
+        }
+
+        @Transactional(readOnly = true)
+        public Tenant findTenantBySlug(String slug) {
+                log.info("Fetching tenant by slug: {}", slug);
+                return tenantRepository.findBySlug(slug.toLowerCase().trim())
+                                .orElseThrow(() -> TenantException.notFound("No tenant found with identifier: " + slug));
+        }
+
+        @Transactional(readOnly = true)
+        public boolean tenantOwnerEmailExists(String email) {
+                return tenantRepository.existsByOwnerEmail(email);
+        }
+
+        @Transactional(readOnly = true)
+        public boolean tenantSlugExists(String slug) {
+                return tenantRepository.existsBySlug(slug.toLowerCase().trim());
+        }
+
+        @Transactional(readOnly = true)
+        public List<Tenant> getAllTenants() {
+                return tenantRepository.findAll();
+        }
+
+        @Transactional
+        public Tenant saveTenant(Tenant tenant) {
+                return tenantRepository.save(tenant);
+        }
+
+        @Transactional
+        public void updateTenantStatus(Long tenantId, Status status) {
+                Tenant tenant = tenantRepository.findById(tenantId)
+                                .orElseThrow(() -> TenantException.notFound(tenantId));
+                tenant.setStatus(status);
+                tenantRepository.save(tenant);
         }
 
         @Transactional
@@ -102,8 +154,7 @@ public class TenantService {
         public TenantStatusResponse getTenantStatus(Long tenantId) {
                 log.info("Fetching operational status for tenant id: {}", tenantId);
 
-                Tenant tenant = tenantRepository.findById(tenantId)
-                                .orElseThrow(() -> TenantException.notFound(tenantId));
+                Tenant tenant = this.getTenantByIdWithPlan(tenantId);
 
                 TenantStatusResponse.TenantStatusResponseBuilder builder = TenantStatusResponse.builder()
                                 .tenantStatus(tenant.getStatus())
@@ -163,6 +214,46 @@ public class TenantService {
                 fireAuditEvent(AuditAction.STATUS_CHANGE, tenant.getId(), tenant.getName(),
                         Map.of("status", Status.ACTIVE.name()),
                         "Tenant reactivated");
+        }
+
+        // ================== Admin Query Methods ==================
+
+        @Transactional(readOnly = true)
+        public Optional<Tenant> findTenantByIdOptional(Long tenantId) {
+                return tenantRepository.findById(tenantId);
+        }
+
+        @Transactional(readOnly = true)
+        public Page<Tenant> getTenantsByStatus(Status status, Pageable pageable) {
+                return tenantRepository.findByStatus(status, pageable);
+        }
+
+        @Transactional(readOnly = true)
+        public List<Tenant> getTenantsByPlanId(Long planId) {
+                return tenantRepository.findByPlanIdAndDeletedFalse(planId);
+        }
+
+        @Transactional(readOnly = true)
+        public List<Tenant> getTenantsByStatusList(Status status) {
+                return tenantRepository.findAllByStatus(status);
+        }
+
+        @Transactional(readOnly = true)
+        public List<Tenant> getTenantsByPlanIdAndStatus(Long planId, Status status) {
+                List<Tenant> byPlan = tenantRepository.findByPlanIdAndDeletedFalse(planId);
+                List<Tenant> byStatus = tenantRepository.findAllByStatus(status);
+                byPlan.retainAll(byStatus);
+                return byPlan;
+        }
+
+        @Transactional(readOnly = true)
+        public Page<Tenant> getAllTenantsPaged(Pageable pageable) {
+                return tenantRepository.findAll(pageable);
+        }
+
+        @Transactional(readOnly = true)
+        public long getTotalTenantCount() {
+                return tenantRepository.count();
         }
 
         private void fireAuditEvent(AuditAction action, Long entityId, String entityName,

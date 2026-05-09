@@ -5,7 +5,7 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.SubscriptionRepository;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,14 +21,14 @@ import java.util.List;
 @Slf4j
 public class SubscriptionCancelJob implements Job {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
 
     @Override
     public void execute(JobExecutionContext context) {
         log.info("Starting SubscriptionCancelJob");
-        List<Tenant> tenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> tenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
 
         for (Tenant tenant : tenants) {
             try {

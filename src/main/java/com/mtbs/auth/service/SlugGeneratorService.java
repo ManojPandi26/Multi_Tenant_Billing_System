@@ -2,7 +2,7 @@ package com.mtbs.auth.service;
 
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.tenant.entity.Tenant;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,7 +14,7 @@ import java.util.List;
 @Slf4j
 public class SlugGeneratorService {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
 
     public String generateSlug(String tenantName) {
         String base = tenantName == null ? "tenant" : tenantName;
@@ -35,7 +35,7 @@ public class SlugGeneratorService {
 
         String candidate = base;
         int suffix = 1;
-        while (tenantRepository.existsBySlug(candidate)) {
+        while (tenantService.tenantSlugExists(candidate)) {
             candidate = base + "-" + suffix;
             suffix++;
             if (suffix > 999) {
@@ -68,7 +68,7 @@ public class SlugGeneratorService {
                     "Slug cannot start or end with a hyphen");
         }
 
-        if (tenantRepository.existsBySlug(slug)) {
+        if (tenantService.tenantSlugExists(slug)) {
             throw new TenantException(
                     com.mtbs.shared.exception.ErrorCode.TENANT_SLUG_ALREADY_EXISTS,
                     "Slug already taken: " + slug);
@@ -76,7 +76,7 @@ public class SlugGeneratorService {
     }
 
     public List<TenantOption> resolveTenantsForEmail(String email) {
-        List<Tenant> allTenants = tenantRepository.findAll();
+        List<Tenant> allTenants = tenantService.getAllTenants();
 
         return allTenants.stream()
                 .filter(t -> email != null && email.equalsIgnoreCase(t.getOwnerEmail()))

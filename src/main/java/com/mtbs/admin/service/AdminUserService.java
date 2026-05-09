@@ -6,7 +6,7 @@ import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.auth.service.UserService;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.util.SecurityUtils;
@@ -30,7 +30,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class AdminUserService {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final UserService userService;
     private final OutboxEventPublisher outboxEventPublisher;
 
@@ -41,8 +41,7 @@ public class AdminUserService {
     public void removeUserFromTenant(Long tenantId, Long userId) {
         log.info("Admin removing userId={} from tenantId={}", userId, tenantId);
 
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> ResourceException.notFound("Tenant", tenantId));
+        Tenant tenant = tenantService.getTenantById(tenantId);
 
         TenantContext.setTenantId(tenant.getId());
         TenantContext.setCurrentSchema(tenant.getSchemaName());

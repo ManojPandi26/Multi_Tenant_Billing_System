@@ -1,15 +1,13 @@
 package com.mtbs.auth.service;
 
 import com.mtbs.auth.dto.auth.*;
-import com.mtbs.auth.service.SlugCacheService;
-import com.mtbs.auth.service.SlugGeneratorService;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.shared.util.CookieUtils;
 import com.mtbs.shared.util.SecurityUtils;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +33,7 @@ import java.util.List;
 @Slf4j
 public class AuthService {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final TenantAuthService tenantAuthService;
     private final SlugCacheService slugCacheService;
     private final SchemaCacheService schemaCacheService;
@@ -51,8 +49,7 @@ public class AuthService {
         Long tenantId = slugCacheService.resolveTenantId(request.getTenantSlug());
 
         // Step 2: Load full tenant with plan for status check
-        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantByIdWithPlan(tenantId);
 
         // Hard-block suspended / deactivated tenants only
         if (tenant.getStatus() == Status.SUSPENDED || tenant.getStatus() == Status.INACTIVE) {
@@ -114,8 +111,7 @@ public class AuthService {
         Long tenantId = slugCacheService.resolveTenantId(request.getTenantSlug());
 
         // Step 2: Load tenant with plan for status check
-        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantByIdWithPlan(tenantId);
 
         // Allow refresh for ACTIVE and PENDING_ONBOARDING tenants
         if (tenant.getStatus() == Status.SUSPENDED || tenant.getStatus() == Status.INACTIVE) {
@@ -175,8 +171,7 @@ public class AuthService {
             }
         }
 
-        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantByIdWithPlan(tenantId);
 
         Long userId = SecurityUtils.getCurrentUserId();
         String userEmail = SecurityUtils.getCurrentUserEmail();
@@ -202,8 +197,7 @@ public class AuthService {
     public UserProfileResponse getCurrentUserProfile(Long userId, Long tenantId) {
         log.info("Fetching profile for userId={}, tenantId={}", userId, tenantId);
 
-        Tenant tenant = tenantRepository.findByIdWithPlan(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantByIdWithPlan(tenantId);
 
         TenantContext.setTenantId(tenant.getId());
         TenantContext.setCurrentSchema(tenant.getSchemaName());

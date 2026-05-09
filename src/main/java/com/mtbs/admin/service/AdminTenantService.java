@@ -16,7 +16,7 @@ import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.TenantException;
 import com.mtbs.shared.multitenancy.TenantContext;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.util.SecurityUtils;
 import com.mtbs.tenant.service.PlanService;
@@ -42,7 +42,7 @@ import java.util.Map;
 @Slf4j
 public class AdminTenantService {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final AdminTenantScopedService adminTenantScopedService;
     private final JdbcTemplate jdbcTemplate;
     private final OutboxEventPublisher outboxEventPublisher;
@@ -56,17 +56,15 @@ public class AdminTenantService {
 
         Page<Tenant> tenants;
         if (status != null && planId != null) {
-            List<Tenant> filtered = tenantRepository.findByPlanIdAndDeletedFalse(planId);
-            List<Tenant> byStatus = tenantRepository.findAllByStatus(status);
-            filtered.retainAll(byStatus);
+            List<Tenant> filtered = tenantService.getTenantsByPlanIdAndStatus(planId, status);
             tenants = new org.springframework.data.domain.PageImpl<>(filtered, pageable, filtered.size());
         } else if (status != null) {
-            tenants = tenantRepository.findByStatus(status, pageable);
+            tenants = tenantService.getTenantsByStatus(status, pageable);
         } else if (planId != null) {
-            List<Tenant> byPlan = tenantRepository.findByPlanIdAndDeletedFalse(planId);
+            List<Tenant> byPlan = tenantService.getTenantsByPlanId(planId);
             tenants = new org.springframework.data.domain.PageImpl<>(byPlan, pageable, byPlan.size());
         } else {
-            tenants = tenantRepository.findAll(pageable);
+            tenants = tenantService.getAllTenantsPaged(pageable);
         }
 
         return tenants.map(this::mapToListResponse);
@@ -75,8 +73,7 @@ public class AdminTenantService {
     @Transactional(readOnly = true)
     public AdminTenantDetailResponse getTenantDetail(Long tenantId) {
         log.info("Admin fetching tenant details: {}", tenantId);
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantById(tenantId);
 
         String schema = "\"" + tenant.getSchemaName() + "\"";
 
@@ -100,11 +97,10 @@ public class AdminTenantService {
     @Transactional
     public TenantResponse changeTenantStatus(Long tenantId, ChangeTenantStatusRequest request) {
         log.info("Admin changing tenant status: {} to {}", tenantId, request.getStatus());
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantById(tenantId);
 
-        tenant.setStatus(request.getStatus());
-        tenant = tenantRepository.save(tenant);
+        tenantService.updateTenantStatus(tenantId, request.getStatus());
+        tenant = tenantService.getTenantById(tenantId);
 
         permissionCacheService.evictTenant(tenant.getSchemaName());
 
@@ -130,12 +126,11 @@ public class AdminTenantService {
     @Transactional
     public TenantResponse changeTenantPlan(Long tenantId, ChangeTenantPlanRequest request) {
         log.info("Admin changing tenant plan: {} to planId={}", tenantId, request.getPlanId());
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantById(tenantId);
 
         Plan plan = planService.getPlanById(request.getPlanId());
         tenant.setPlan(plan);
-        tenant = tenantRepository.save(tenant);
+        tenant = tenantService.saveTenant(tenant);
 
         outboxEventPublisher.save(AuditLogEvent.builder()
                 .action(AuditAction.UPDATE)
@@ -158,8 +153,7 @@ public class AdminTenantService {
 
     public Page<UserResponse> getTenantUsers(Long tenantId, Pageable pageable) {
         log.info("Admin fetching users for tenant: {}", tenantId);
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantById(tenantId);
 
         TenantContext.setTenantId(tenant.getId());
         try {
@@ -173,12 +167,11 @@ public class AdminTenantService {
     @Transactional
     public void deleteTenant(Long tenantId) {
         log.info("Admin soft deleting tenant: {}", tenantId);
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> TenantException.notFound(tenantId));
+        Tenant tenant = tenantService.getTenantById(tenantId);
 
         tenant.setDeleted(true);
         tenant.setDeletedAt(Instant.now());
-        tenantRepository.save(tenant);
+        tenantService.saveTenant(tenant);
 
         outboxEventPublisher.save(AuditLogEvent.builder()
                 .action(AuditAction.DELETE)

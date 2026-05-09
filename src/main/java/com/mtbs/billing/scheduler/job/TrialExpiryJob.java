@@ -7,7 +7,7 @@ import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.SubscriptionRepository;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.PaymentService;
 import com.mtbs.billing.service.SubscriptionService;
@@ -37,7 +37,7 @@ import java.util.List;
 @Slf4j
 public class TrialExpiryJob implements Job {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
     private final InvoiceService invoiceService;
@@ -46,7 +46,7 @@ public class TrialExpiryJob implements Job {
     @Override
     public void execute(JobExecutionContext context) {
         log.info("Starting TrialExpiryJob");
-        List<Tenant> tenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> tenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
 
         int expiredCount = 0;
         int invoicesGenerated = 0;

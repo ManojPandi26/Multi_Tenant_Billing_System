@@ -6,7 +6,7 @@ import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.SubscriptionRepository;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,14 +23,14 @@ import java.util.List;
 @Slf4j
 public class SubscriptionExpiryJob implements Job {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
 
     @Override
     public void execute(JobExecutionContext context) {
         log.info("Starting SubscriptionExpiryJob");
-        List<Tenant> tenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> tenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
 
         for (Tenant tenant : tenants) {
             try {
@@ -46,8 +46,7 @@ public class SubscriptionExpiryJob implements Job {
                     try {
                         subscriptionService.expireSubscription(sub.getId());
                         // Update tenant status to SUSPENDED
-                        tenant.setStatus(Status.SUSPENDED);
-                        tenantRepository.save(tenant);
+                        tenantService.updateTenantStatus(tenant.getId(), Status.SUSPENDED);
                         log.info("Expired subscription {} and suspended tenant {}", sub.getId(), tenant.getName());
                     } catch (Exception e) {
                         log.error("Error expiring subscription {} in tenant {}",

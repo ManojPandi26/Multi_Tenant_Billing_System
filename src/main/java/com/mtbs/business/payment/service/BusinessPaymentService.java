@@ -147,7 +147,7 @@ public class BusinessPaymentService {
                                   BusinessPayment payment) {
         try {
             Long tenantId     = SecurityUtils.getCurrentTenantId();
-            String tenantName = tenantService.getTenantById(tenantId).getName();
+            String tenantName = tenantService.getTenantNameById(tenantId);
 
             // Compute outstanding balance for the payment-received email
             BigDecimal totalPaid    = paymentRepository.sumAmountByInvoiceId(invoice.getId());

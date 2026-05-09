@@ -46,7 +46,6 @@ public class TenantAuthService {
     private final RefreshTokenService refreshTokenService;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
-    private final TenantRepository tenantRepository;
     private final PermissionCacheService permissionCacheService;
     private final SchemaCacheService schemaCacheService;
 

@@ -11,7 +11,7 @@ import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.PlanRepository;
 import com.mtbs.billing.repository.SubscriptionRepository;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.PaymentService;
 import com.mtbs.shared.enums.auth.Status;
@@ -46,7 +46,7 @@ public class TrialEndingSoonJob implements Job {
 
     private static final int DAYS_BEFORE_EXPIRY = 3;
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
     private final OutboxEventPublisher outboxEventPublisher;
@@ -57,7 +57,7 @@ public class TrialEndingSoonJob implements Job {
     public void execute(JobExecutionContext context) {
         log.info("TrialEndingSoonJob started at {}", Instant.now());
 
-        List<Tenant> activeTenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> activeTenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
         Instant now = Instant.now();
         Instant windowEnd = now.plus(DAYS_BEFORE_EXPIRY, ChronoUnit.DAYS);
 

@@ -26,7 +26,6 @@ import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.tenant.repository.PlanRepository;
-import com.mtbs.tenant.repository.TenantRepository;
 import com.mtbs.tenant.service.PlanService;
 import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
@@ -85,7 +84,6 @@ public class SubscriptionService {
     private final SubscriptionRepository subscriptionRepository;
     private final PlanService planService;
     private final PlanRepository planRepository;
-    private final TenantRepository tenantRepository;
     private final TenantService tenantService;
     private final InvoiceService invoiceService;
     private final PaymentService paymentService;
@@ -941,7 +939,7 @@ public class SubscriptionService {
     private void fireSimpleEvent(NotificationEvent type, Plan plan, Subscription sub) {
         try {
             Long tenantId = TenantContext.getTenantId();
-            Tenant tenant = tenantRepository.findById(tenantId).orElse(null);
+            Tenant tenant = tenantService.getTenantById(tenantId);
 
             outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(type)
@@ -964,7 +962,7 @@ public class SubscriptionService {
                                   Subscription sub, Long invoiceId) {
         try {
             Long tenantId = TenantContext.getTenantId();
-            Tenant tenant = tenantRepository.findById(tenantId).orElse(null);
+            Tenant tenant = tenantService.getTenantById(tenantId);
 
             outboxEventPublisher.save(BillingEvent.builder()
                     .eventType(type)

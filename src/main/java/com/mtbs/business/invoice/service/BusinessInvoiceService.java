@@ -220,7 +220,7 @@ public class BusinessInvoiceService {
 
         Customer customer = customerService.getEntityById(invoice.getCustomerId());
         Long tenantId = SecurityUtils.getCurrentTenantId();
-        String tenantName = tenantService.getTenantById(tenantId).getName();
+        String tenantName = tenantService.getTenantNameById(tenantId);
 
         // Generate PDF bytes — passed to NotificationService via event extras
         byte[] pdfBytes = null;

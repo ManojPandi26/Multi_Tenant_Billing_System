@@ -10,7 +10,7 @@ import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.InvoiceRepository;
 import com.mtbs.billing.repository.PaymentRepository;
 import com.mtbs.billing.repository.SubscriptionRepository;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -24,16 +24,16 @@ import java.util.*;
 @Slf4j
 public class AdminMetricsService {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final SubscriptionRepository subscriptionRepository;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
 
     @Cacheable(value = "admin-metrics")
     public AdminMetrics getMetrics() {
-        long totalTenants = tenantRepository.count();
-        long activeTenants = tenantRepository.findAllByStatus(Status.ACTIVE).size();
-        long suspendedTenants = tenantRepository.findAllByStatus(Status.SUSPENDED).size();
+        long totalTenants = tenantService.getTotalTenantCount();
+        long activeTenants = tenantService.getTenantsByStatusList(Status.ACTIVE).size();
+        long suspendedTenants = tenantService.getTenantsByStatusList(Status.SUSPENDED).size();
 
         // Aggregate across all tenants
         long activeSubscriptions = 0;
@@ -45,7 +45,7 @@ public class AdminMetricsService {
         BigDecimal totalPaymentsAmount = BigDecimal.ZERO;
         long failedPayments = 0;
 
-        List<Tenant> tenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> tenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
         Map<String, Long> tenantsByPlan = new HashMap<>();
 
         for (Tenant tenant : tenants) {

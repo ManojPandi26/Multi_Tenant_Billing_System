@@ -1,8 +1,7 @@
 package com.mtbs.auth.service;
 
-import com.mtbs.shared.exception.TenantException;
 import com.mtbs.tenant.entity.Tenant;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -19,7 +18,7 @@ public class SlugCacheService {
     private static final Duration CACHE_TTL = Duration.ofHours(1);
 
     private final StringRedisTemplate stringRedisTemplate;
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
 
     public Long resolveTenantId(String slug) {
         String normalizedSlug = slug.toLowerCase().trim();
@@ -31,9 +30,7 @@ public class SlugCacheService {
             return Long.parseLong(cached);
         }
 
-        Tenant tenant = tenantRepository.findBySlug(normalizedSlug)
-                .orElseThrow(() -> TenantException.notFound(
-                        "No tenant found with identifier: " + normalizedSlug));
+        Tenant tenant = tenantService.findTenantBySlug(normalizedSlug);
 
         stringRedisTemplate.opsForValue().set(
                 key,

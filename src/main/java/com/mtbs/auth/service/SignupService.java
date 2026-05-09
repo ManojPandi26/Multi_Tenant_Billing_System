@@ -3,7 +3,6 @@ package com.mtbs.auth.service;
 import com.mtbs.auth.dto.auth.AuthResponse;
 import com.mtbs.auth.dto.auth.SignupRequest;
 import com.mtbs.auth.dto.auth.TokenPair;
-import com.mtbs.shared.constant.CookieConstants;
 import com.mtbs.shared.util.CookieUtils;
 import com.mtbs.tenant.entity.TenantOnboarding;
 import com.mtbs.tenant.entity.Tenant;
@@ -18,13 +17,12 @@ import com.mtbs.shared.enums.audit.AuditEntityType;
 import com.mtbs.shared.exception.AuthException;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.TenantOnboardingRepository;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.tenant.service.TenantFlywayMigrationService;
 import com.mtbs.tenant.service.PlanService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,7 +49,7 @@ import java.util.Map;
 @Slf4j
 public class SignupService {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final TenantOnboardingRepository onboardingRepository;
     private final TenantFlywayMigrationService tenantFlywayMigrationService;
     private final TenantAuthService tenantScopedAuthService;
@@ -63,7 +61,7 @@ public class SignupService {
         log.info("New signup request for email={}", request.getEmail());
 
         // 1. Email uniqueness check in public schema lookup table
-        if (tenantRepository.existsByOwnerEmail(request.getEmail())) {
+        if (tenantService.tenantOwnerEmailExists(request.getEmail())) {
             throw AuthException.emailAlreadyExists(request.getEmail());
         }
 
@@ -118,7 +116,7 @@ public class SignupService {
                 .onboardingStep(0)
                 .ownerEmail(request.getEmail())
                 .build();
-        Tenant savedTenant = tenantRepository.save(tenant);
+        Tenant savedTenant = tenantService.saveTenant(tenant);
 
         // Skip audit event during signup - schema not yet created
         // Audit event can be fired after onboarding completes
@@ -137,22 +135,19 @@ public class SignupService {
 
     @Transactional
     public void markTenantFailed(Long tenantId) {
-        tenantRepository.findById(tenantId).ifPresent(t -> {
-            t.setStatus(Status.ONBOARDING_ABANDONED);
-            tenantRepository.save(t);
+        tenantService.updateTenantStatus(tenantId, Status.ONBOARDING_ABANDONED);
 
-            outboxEventPublisher.save(AuditLogEvent.builder()
-                    .action(AuditAction.STATUS_CHANGE)
-                    .entityType(AuditEntityType.TENANT)
-                    .entityId(t.getId())
-                    .entityName(t.getName())
-                    .changesBefore(Map.of("status", Status.PENDING_ONBOARDING.name()))
-                    .changesAfter(Map.of("status", Status.ONBOARDING_ABANDONED.name()))
-                    .description("Tenant onboarding failed")
-                    .module("TENANT_MANAGEMENT")
-                    .severity("WARN")
-                    .build(), "Tenant", t.getId());
-        });
+        outboxEventPublisher.save(AuditLogEvent.builder()
+                .action(AuditAction.STATUS_CHANGE)
+                .entityType(AuditEntityType.TENANT)
+                .entityId(tenantId)
+                .entityName("Tenant")
+                .changesBefore(Map.of("status", Status.PENDING_ONBOARDING.name()))
+                .changesAfter(Map.of("status", Status.ONBOARDING_ABANDONED.name()))
+                .description("Tenant onboarding failed")
+                .module("TENANT_MANAGEMENT")
+                .severity("WARN")
+                .build(), "Tenant", tenantId);
     }
 
     /**

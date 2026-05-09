@@ -6,7 +6,7 @@ import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.SubscriptionRepository;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.PaymentService;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +24,7 @@ import java.util.List;
 @Slf4j
 public class BillingCycleJob implements Job {
 
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final SubscriptionRepository subscriptionRepository;
     private final InvoiceService invoiceService;
     private final PaymentService paymentService;
@@ -32,7 +32,7 @@ public class BillingCycleJob implements Job {
     @Override
     public void execute(JobExecutionContext context) {
         log.info("Starting BillingCycleJob");
-        List<Tenant> tenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> tenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
 
         for (Tenant tenant : tenants) {
             try {

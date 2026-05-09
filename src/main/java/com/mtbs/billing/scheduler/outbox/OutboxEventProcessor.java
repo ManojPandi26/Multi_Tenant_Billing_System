@@ -8,7 +8,7 @@ import com.mtbs.shared.event.outbox.OutboxStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
-import com.mtbs.tenant.repository.TenantRepository;
+import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,7 +30,7 @@ public class OutboxEventProcessor {
     private static final String LOG_PREFIX = "OUTBOX";
 
     private final OutboxEventRepository outboxRepository;
-    private final TenantRepository tenantRepository;
+    private final TenantService tenantService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final TransactionTemplate transactionTemplate;
@@ -43,7 +43,7 @@ public class OutboxEventProcessor {
 
     @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:5000}")
     public void processOutbox() {
-        List<Tenant> tenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> tenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
 
         for (Tenant tenant : tenants) {
             try {
@@ -86,7 +86,7 @@ public class OutboxEventProcessor {
 
     @Scheduled(cron = "${app.outbox.cleanup-cron:0 0 3 * * ?}")
     public void cleanupProcessedEvents() {
-        List<Tenant> tenants = tenantRepository.findAllByStatus(Status.ACTIVE);
+        List<Tenant> tenants = tenantService.getTenantsByStatusList(Status.ACTIVE);
 
         for (Tenant tenant : tenants) {
             try {
