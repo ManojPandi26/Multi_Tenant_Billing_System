@@ -4,7 +4,6 @@ import com.mtbs.billing.entity.Subscription;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.multitenancy.TenantContext;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +21,6 @@ import java.util.List;
 public class SubscriptionCancelJob implements Job {
 
     private final TenantService tenantService;
-    private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
 
     @Override
@@ -35,8 +33,8 @@ public class SubscriptionCancelJob implements Job {
                 TenantContext.setTenantId(tenant.getId());
                 TenantContext.setCurrentSchema(tenant.getSchemaName());
 
-                List<Subscription> subscriptionsToCancel = subscriptionRepository
-                        .findAllByCancelAtPeriodEndTrueAndCurrentPeriodEndBefore(Instant.now());
+                List<Subscription> subscriptionsToCancel = subscriptionService
+                        .findAllSubscriptionsByCancelAtPeriodEndAndPeriodEndBefore(Instant.now());
 
                 for (Subscription sub : subscriptionsToCancel) {
                     try {

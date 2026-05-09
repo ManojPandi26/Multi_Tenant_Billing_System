@@ -3,7 +3,7 @@ package com.mtbs.billing.controller;
 import com.mtbs.billing.dto.UsageLimitsResponse;
 import com.mtbs.billing.dto.UsageResponse;
 import com.mtbs.billing.entity.Subscription;
-import com.mtbs.billing.repository.SubscriptionRepository;
+import com.mtbs.billing.service.SubscriptionService;
 import com.mtbs.billing.service.UsageService;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/${api.version}/usage")
@@ -36,7 +37,7 @@ public class UsageController {
 
     private final PlanService planService;
     private final UsageService usageService;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final PlanRepository planRepository;
 
     @GetMapping("/limits")
@@ -77,11 +78,10 @@ public class UsageController {
         long activeUsersCount = usageService.getActiveUserCount(tenantId);
         Long usersLimit = null;
         
-        Subscription subscription = subscriptionRepository
-                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
-                .orElse(null);
-        if (subscription != null) {
-            Plan plan = planRepository.findById(subscription.getPlanId()).orElse(null);
+        Optional<Subscription> subOpt= subscriptionService.findFirstSubscriptionByStatuses(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
+        if (subOpt.isPresent()) {
+            Plan plan = planRepository.findById(subOpt.get().getPlanId()).orElse(null);
             if (plan != null) {
                 usersLimit = planService.getMaxUsers(plan.getId());
             }

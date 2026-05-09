@@ -1,7 +1,7 @@
 package com.mtbs.auth.aspect;
 
 import com.mtbs.billing.entity.Subscription;
-import com.mtbs.billing.repository.SubscriptionRepository;
+import com.mtbs.billing.service.SubscriptionService;
 import com.mtbs.billing.service.UsageService;
 import com.mtbs.shared.annotation.TrackUsage;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Aspect
 @Component
@@ -25,7 +26,7 @@ import java.util.List;
 public class UsageTrackingAspect {
 
     private final UsageService usageService;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
 
     @Around("@annotation(trackUsage)")
     public Object trackUsage(ProceedingJoinPoint joinPoint, TrackUsage trackUsage) {
@@ -46,14 +47,15 @@ public class UsageTrackingAspect {
             return proceedSafely(joinPoint);
         }
 
-        Subscription subscription = subscriptionRepository
-                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
-                .orElse(null);
+        Optional<Subscription> subOpt = subscriptionService.findFirstSubscriptionByStatuses(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
-        if (subscription == null) {
+        if (subOpt.isEmpty()) {
             log.warn("No active subscription for tenantId={} — skipping API call recording", tenantId);
             return proceedSafely(joinPoint);
         }
+
+        Subscription subscription = subOpt.get();
 
         if (metric == UsageMetric.API_CALLS) {
             recordApiCallAsync(tenantId, subscription.getId(), subscription.getCurrentPeriodStart(), subscription.getCurrentPeriodEnd());

@@ -6,7 +6,6 @@ import com.mtbs.billing.dto.UsageLimitsResponse;
 import com.mtbs.billing.dto.UsageResponse;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.billing.entity.UsageRecord;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.billing.repository.UsageRecordRepository;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
@@ -24,10 +23,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -36,7 +32,7 @@ public class UsageService {
 
     private final UsageRecordRepository usageRecordRepository;
     private final UserRepository userRepository;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final PlanRepository planRepository;
     private final PlanService planService;
 
@@ -70,14 +66,13 @@ public class UsageService {
 
     public List<UsageResponse> getCurrentUsage() {
         Long tenantId = com.mtbs.shared.util.SecurityUtils.getCurrentTenantId();
-        Subscription subscription = subscriptionRepository
-                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
-                .orElse(null);
+        Optional<Subscription> subOpt = subscriptionService
+                .findFirstSubscriptionByStatuses(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
-        if (subscription == null) {
+        if (subOpt.isEmpty()) {
             return List.of();
         }
-
+        Subscription subscription = subOpt.get();
         return getUsageForPeriod(subscription.getCurrentPeriodStart(), subscription.getCurrentPeriodEnd());
     }
 
@@ -89,16 +84,15 @@ public class UsageService {
 
         List<UsageResponse> responses = new ArrayList<>();
 
-        Subscription subscription = subscriptionRepository
-                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
-                .orElse(null);
+        Optional<Subscription> subOpt = subscriptionService
+                .findFirstSubscriptionByStatuses(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
         Long apiCallsLimit = null;
         Long storageLimitGb = null;
         Long usersLimit = null;
 
-        if (subscription != null) {
-            Plan plan = planRepository.findById(subscription.getPlanId()).orElse(null);
+        if (subOpt.isPresent()) {
+            Plan plan = planRepository.findById(subOpt.get().getPlanId()).orElse(null);
             if (plan != null) {
                 apiCallsLimit = planService.getMaxApiCallsPerMonth(plan.getId());
                 storageLimitGb = planService.getMaxStorageGb(plan.getId()) != null ? planService.getMaxStorageGb(plan.getId()).longValue() : null;
@@ -193,10 +187,9 @@ public class UsageService {
     }
 
     public UsageLimitsResponse getLimitsForCurrentPeriod(Long tenantId) {
-        Subscription subscription = subscriptionRepository
-                .findFirstByStatusIn(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
-                .orElse(null);
-        if (subscription == null) {
+        Optional<Subscription> subOpt = subscriptionService
+                .findFirstSubscriptionByStatuses(List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
+        if (subOpt.isEmpty()) {
             return UsageLimitsResponse.builder()
                     .apiCalls(UsageLimitsResponse.ApiCallsUsage.builder()
                             .used(0)
@@ -226,6 +219,7 @@ public class UsageService {
                             .build())
                     .build();
         }
+        Subscription subscription = subOpt.get();
 
         Plan plan = planRepository.findById(subscription.getPlanId())
                 .orElseThrow(() -> new IllegalStateException("Plan not found for subscription"));

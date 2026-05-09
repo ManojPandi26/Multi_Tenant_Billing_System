@@ -43,6 +43,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Manages the full subscription lifecycle for a tenant.
@@ -93,6 +94,64 @@ public class SubscriptionService {
 
     @Value("${razorpay.key-id}")
     private String razorpayKeyId;
+
+    // ================== Cross-Module Query Methods ==================
+
+    @Transactional(readOnly = true)
+    public Optional<Subscription> findSubscriptionById(Long id) {
+        return subscriptionRepository.findById(id);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Subscription> findSubscriptionByIdOrThrow(Long id) {
+        return Optional.of(subscriptionRepository.findById(id)
+                .orElseThrow(() -> ResourceException.notFound("Subscription", id)));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Subscription> findFirstSubscriptionByStatuses(List<SubscriptionStatus> statuses) {
+        return subscriptionRepository.findFirstByStatusIn(statuses);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Subscription> findAllSubscriptionsByStatusAndPeriodEndBefore(SubscriptionStatus status, Instant threshold) {
+        return subscriptionRepository.findAllByStatusAndCurrentPeriodEndBefore(status, threshold);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Subscription> findAllSubscriptionsByStatusAndTrialEndBefore(SubscriptionStatus status, Instant threshold) {
+        return subscriptionRepository.findAllByStatusAndTrialEndBefore(status, threshold);
+    }
+
+    @Transactional(readOnly = true)
+    public long countSubscriptionsByStatus(SubscriptionStatus status) {
+        return subscriptionRepository.countByStatus(status);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Subscription> findAllSubscriptionsByCancelAtPeriodEndAndPeriodEndBefore(Instant now) {
+        return subscriptionRepository.findAllByCancelAtPeriodEndTrueAndCurrentPeriodEndBefore(now);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Subscription> findAllSubscriptionsByScheduledDowngradeAndPeriodEndBefore(SubscriptionStatus status, Instant now) {
+        return subscriptionRepository.findAllByStatusAndScheduledDowngradePlanIdIsNotNullAndCurrentPeriodEndBefore(status, now);
+    }
+
+    @Transactional
+    public Subscription saveSubscription(Subscription subscription) {
+        return subscriptionRepository.save(subscription);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Subscription> findByRazorpaySubscriptionId(String razorpaySubscriptionId) {
+        return subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Subscription> findByUpgradePendingInvoiceId(Long invoiceId) {
+        return subscriptionRepository.findByUpgradePendingInvoiceId(invoiceId);
+    }
 
     // ── Queries ───────────────────────────────────────────────────────────────
 

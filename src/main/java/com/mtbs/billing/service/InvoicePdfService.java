@@ -13,7 +13,6 @@ import com.mtbs.billing.entity.InvoiceLineItem;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.billing.repository.InvoiceLineItemRepository;
 import com.mtbs.billing.repository.InvoiceRepository;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContextHolder;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +24,7 @@ import java.io.ByteArrayOutputStream;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -33,7 +33,7 @@ public class InvoicePdfService {
 
     private final InvoiceRepository invoiceRepository;
     private final InvoiceLineItemRepository lineItemRepository;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final UsageService usageService;
 
     private static final DateTimeFormatter DATE_FORMATTER =
@@ -146,12 +146,13 @@ public class InvoicePdfService {
     @Async
     public void recordStorageUsageAsync(Long subscriptionId, long fileSizeBytes) {
         try {
-            Subscription subscription = subscriptionRepository.findById(subscriptionId).orElse(null);
-            if (subscription == null) {
+            Optional<Subscription> subOpt = subscriptionService.findSubscriptionById(subscriptionId);
+
+            if (subOpt.isEmpty()) {
                 log.warn("No subscription found for subscriptionId={} — skipping storage recording", subscriptionId);
                 return;
             }
-
+            Subscription subscription = subOpt.get();
             Long tenantId = TenantContextHolder.getTenantId();
             if (tenantId == null) {
                 log.warn("No tenant context — skipping storage recording for subscriptionId={}", subscriptionId);

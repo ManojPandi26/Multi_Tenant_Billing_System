@@ -2,7 +2,7 @@ package com.mtbs.business.invoice.service;
 
 import com.itextpdf.kernel.colors.Color;
 import com.mtbs.billing.entity.Subscription;
-import com.mtbs.billing.repository.SubscriptionRepository;
+import com.mtbs.billing.service.SubscriptionService;
 import com.mtbs.business.customer.service.CustomerService;
 import com.mtbs.business.invoice.entity.BusinessInvoice;
 import com.mtbs.business.invoice.entity.BusinessInvoiceItem;
@@ -25,6 +25,7 @@ import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
+import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContextHolder;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -56,7 +58,7 @@ public class BusinessInvoicePdfService {
     private final BusinessInvoiceRepository invoiceRepository;
     private final BusinessInvoiceItemRepository itemRepository;
     private final CustomerService customerService;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final UsageService usageService;
 
     @Transactional(readOnly = true)
@@ -92,16 +94,15 @@ public class BusinessInvoicePdfService {
                 return;
             }
 
-            Subscription subscription = subscriptionRepository
-                    .findFirstByStatusIn(java.util.List.of(
-                            com.mtbs.shared.enums.billing.SubscriptionStatus.ACTIVE,
-                            com.mtbs.shared.enums.billing.SubscriptionStatus.TRIALING))
-                    .orElse(null);
+            Optional<Subscription> subOpt = subscriptionService.findFirstSubscriptionByStatuses(
+                    List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
-            if (subscription == null) {
+            if (subOpt.isEmpty()) {
                 log.warn("No active subscription for tenantId={} — skipping storage recording", tenantId);
                 return;
             }
+
+            Subscription subscription = subOpt.get();
 
             usageService.recordStorageUsage(
                     tenantId,

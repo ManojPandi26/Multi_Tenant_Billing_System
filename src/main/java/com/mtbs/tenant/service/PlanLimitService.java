@@ -1,8 +1,9 @@
 package com.mtbs.tenant.service;
 
 import com.mtbs.billing.entity.Subscription;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.billing.repository.UsageRecordRepository;
+import com.mtbs.billing.service.SubscriptionService;
+import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.enums.billing.UsageMetric;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
@@ -38,7 +39,7 @@ import java.util.Optional;
 @Slf4j
 public class PlanLimitService {
 
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final PlanService planService;
     private final UserRepository userRepository;
     private final UsageRecordRepository usageRecordRepository;
@@ -55,9 +56,8 @@ public class PlanLimitService {
     public PlanLimits getCurrentLimits() {
         Long tenantId = TenantContext.getTenantId();
         
-        Optional<Subscription> subOpt = subscriptionRepository.findFirstByStatusIn(
-                List.of(com.mtbs.shared.enums.billing.SubscriptionStatus.ACTIVE, 
-                        com.mtbs.shared.enums.billing.SubscriptionStatus.TRIALING));
+        Optional<Subscription> subOpt = subscriptionService.findFirstSubscriptionByStatuses(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
         // If no subscription, return limited FREE plan limits
         if (subOpt.isEmpty()) {
@@ -81,9 +81,8 @@ public class PlanLimitService {
      * @throws ResourceException if limit exceeded
      */
     public boolean checkLimit(UsageMetric metric) {
-        Optional<Subscription> subOpt = subscriptionRepository.findFirstByStatusIn(
-                List.of(com.mtbs.shared.enums.billing.SubscriptionStatus.ACTIVE,
-                        com.mtbs.shared.enums.billing.SubscriptionStatus.TRIALING));
+        Optional<Subscription> subOpt = subscriptionService.findFirstSubscriptionByStatuses(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
         if (subOpt.isEmpty()) {
             log.warn("No active subscription for tenant");
@@ -122,9 +121,8 @@ public class PlanLimitService {
      * Used by request interceptor to enforce API call caps.
      */
     public void checkApiCallLimit(long currentApiCalls) {
-        Optional<Subscription> subOpt = subscriptionRepository.findFirstByStatusIn(
-                List.of(com.mtbs.shared.enums.billing.SubscriptionStatus.ACTIVE,
-                        com.mtbs.shared.enums.billing.SubscriptionStatus.TRIALING));
+        Optional<Subscription> subOpt = subscriptionService.findFirstSubscriptionByStatuses(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
         if (subOpt.isEmpty()) {
             return; // No subscription = no limit
@@ -154,9 +152,8 @@ public class PlanLimitService {
             return;
         }
 
-        Optional<Subscription> subOpt = subscriptionRepository.findFirstByStatusIn(
-                List.of(com.mtbs.shared.enums.billing.SubscriptionStatus.ACTIVE,
-                        com.mtbs.shared.enums.billing.SubscriptionStatus.TRIALING));
+        Optional<Subscription> subOpt = subscriptionService.findFirstSubscriptionByStatuses(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
         if (subOpt.isEmpty()) {
             throw ResourceException.planLimitExceeded(metric.name(), 0, 0);
@@ -212,9 +209,8 @@ public class PlanLimitService {
      * Used by dashboard/admin panels to show usage progress.
      */
     public UsageLimitsResponse getLimits() {
-        Optional<Subscription> subOpt = subscriptionRepository.findFirstByStatusIn(
-                List.of(com.mtbs.shared.enums.billing.SubscriptionStatus.ACTIVE,
-                        com.mtbs.shared.enums.billing.SubscriptionStatus.TRIALING));
+        Optional<Subscription> subOpt = subscriptionService.findFirstSubscriptionByStatuses(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
 
         if (subOpt.isEmpty()) {
             return UsageLimitsResponse.builder().build();

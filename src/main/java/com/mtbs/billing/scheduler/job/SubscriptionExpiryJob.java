@@ -5,7 +5,6 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.service.TenantService;
 import com.mtbs.billing.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +23,6 @@ import java.util.List;
 public class SubscriptionExpiryJob implements Job {
 
     private final TenantService tenantService;
-    private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
 
     @Override
@@ -39,8 +37,8 @@ public class SubscriptionExpiryJob implements Job {
 
                 // Find PAST_DUE subscriptions past 7-day grace period
                 Instant gracePeriodEnd = Instant.now().minus(Duration.ofDays(7));
-                List<Subscription> pastDueSubscriptions = subscriptionRepository
-                        .findAllByStatusAndCurrentPeriodEndBefore(SubscriptionStatus.PAST_DUE, gracePeriodEnd);
+                List<Subscription> pastDueSubscriptions = subscriptionService
+                        .findAllSubscriptionsByStatusAndPeriodEndBefore(SubscriptionStatus.PAST_DUE, gracePeriodEnd);
 
                 for (Subscription sub : pastDueSubscriptions) {
                     try {

@@ -10,8 +10,8 @@ import com.mtbs.shared.event.billing.BillingEvent;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.repository.PlanRepository;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.service.TenantService;
+import com.mtbs.billing.service.SubscriptionService;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.PaymentService;
 import com.mtbs.shared.enums.auth.Status;
@@ -47,7 +47,7 @@ public class TrialEndingSoonJob implements Job {
     private static final int DAYS_BEFORE_EXPIRY = 3;
 
     private final TenantService tenantService;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final PlanRepository planRepository;
     private final OutboxEventPublisher outboxEventPublisher;
     private final InvoiceService invoiceService;
@@ -69,8 +69,8 @@ public class TrialEndingSoonJob implements Job {
                 TenantContext.setTenantId(tenant.getId());
                 TenantContext.setCurrentSchema(tenant.getSchemaName());
 
-                subscriptionRepository
-                        .findFirstByStatusIn(List.of(SubscriptionStatus.TRIALING))
+                subscriptionService
+                        .findFirstSubscriptionByStatuses(List.of(SubscriptionStatus.TRIALING))
                         .ifPresent(sub -> {
                             if (isTrialEndingWithinWindow(sub, now, windowEnd)) {
                                 try {

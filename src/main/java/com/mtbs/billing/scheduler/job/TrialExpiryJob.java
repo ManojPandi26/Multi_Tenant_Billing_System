@@ -6,8 +6,8 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.service.TenantService;
+import com.mtbs.billing.service.SubscriptionService;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.PaymentService;
 import com.mtbs.billing.service.SubscriptionService;
@@ -38,7 +38,6 @@ import java.util.List;
 public class TrialExpiryJob implements Job {
 
     private final TenantService tenantService;
-    private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
     private final InvoiceService invoiceService;
     private final PaymentService paymentService;
@@ -56,8 +55,8 @@ public class TrialExpiryJob implements Job {
                 TenantContext.setTenantId(tenant.getId());
                 TenantContext.setCurrentSchema(tenant.getSchemaName());
 
-                List<Subscription> expiredTrials = subscriptionRepository
-                        .findAllByStatusAndTrialEndBefore(SubscriptionStatus.TRIALING, Instant.now());
+                List<Subscription> expiredTrials = subscriptionService
+                        .findAllSubscriptionsByStatusAndTrialEndBefore(SubscriptionStatus.TRIALING, Instant.now());
 
                 for (Subscription sub : expiredTrials) {
                     try {

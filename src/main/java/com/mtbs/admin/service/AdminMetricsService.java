@@ -1,6 +1,7 @@
 package com.mtbs.admin.service;
 
 import com.mtbs.admin.dto.AdminMetrics;
+import com.mtbs.billing.service.SubscriptionService;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
@@ -9,7 +10,6 @@ import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.billing.repository.InvoiceRepository;
 import com.mtbs.billing.repository.PaymentRepository;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,7 @@ import java.util.*;
 public class AdminMetricsService {
 
     private final TenantService tenantService;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
 
@@ -53,9 +53,9 @@ public class AdminMetricsService {
                 TenantContext.setTenantId(tenant.getId());
                 TenantContext.setCurrentSchema(tenant.getSchemaName());
 
-                activeSubscriptions += subscriptionRepository.countByStatus(SubscriptionStatus.ACTIVE);
-                trialingSubscriptions += subscriptionRepository.countByStatus(SubscriptionStatus.TRIALING);
-                pastDueSubscriptions += subscriptionRepository.countByStatus(SubscriptionStatus.PAST_DUE);
+                activeSubscriptions += subscriptionService.countSubscriptionsByStatus(SubscriptionStatus.ACTIVE);
+                trialingSubscriptions += subscriptionService.countSubscriptionsByStatus(SubscriptionStatus.TRIALING);
+                pastDueSubscriptions += subscriptionService.countSubscriptionsByStatus(SubscriptionStatus.PAST_DUE);
 
                 totalInvoices += invoiceRepository.count();
                 paidInvoices += invoiceRepository.countByStatus(InvoiceStatus.PAID);

@@ -5,8 +5,8 @@ import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
-import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.tenant.service.TenantService;
+import com.mtbs.billing.service.SubscriptionService;
 import com.mtbs.billing.service.InvoiceService;
 import com.mtbs.billing.service.PaymentService;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +25,7 @@ import java.util.List;
 public class BillingCycleJob implements Job {
 
     private final TenantService tenantService;
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
     private final InvoiceService invoiceService;
     private final PaymentService paymentService;
 
@@ -39,8 +39,8 @@ public class BillingCycleJob implements Job {
                 TenantContext.setTenantId(tenant.getId());
                 TenantContext.setCurrentSchema(tenant.getSchemaName());
 
-                List<Subscription> expiredSubscriptions = subscriptionRepository
-                        .findAllByStatusAndCurrentPeriodEndBefore(SubscriptionStatus.ACTIVE, Instant.now());
+                List<Subscription> expiredSubscriptions = subscriptionService
+                        .findAllSubscriptionsByStatusAndPeriodEndBefore(SubscriptionStatus.ACTIVE, Instant.now());
 
                 for (Subscription sub : expiredSubscriptions) {
                     try {
@@ -60,7 +60,7 @@ public class BillingCycleJob implements Job {
                         };
                         sub.setCurrentPeriodStart(newStart);
                         sub.setCurrentPeriodEnd(newEnd);
-                        subscriptionRepository.save(sub);
+                        subscriptionService.saveSubscription(sub);
 
                         log.info("Processed billing for subscription {} in tenant {}", sub.getId(),
                                 tenant.getSchemaName());
