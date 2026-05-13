@@ -14,7 +14,7 @@ import com.mtbs.billing.entity.Subscription;
 import com.mtbs.billing.repository.InvoiceLineItemRepository;
 import com.mtbs.billing.repository.InvoiceRepository;
 import com.mtbs.shared.exception.ResourceException;
-import com.mtbs.shared.multitenancy.TenantContextHolder;
+import com.mtbs.shared.multitenancy.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -153,7 +153,7 @@ public class InvoicePdfService {
                 return;
             }
             Subscription subscription = subOpt.get();
-            Long tenantId = TenantContextHolder.getTenantId();
+            Long tenantId = TenantContext.getTenantId();
             if (tenantId == null) {
                 log.warn("No tenant context — skipping storage recording for subscriptionId={}", subscriptionId);
                 return;
