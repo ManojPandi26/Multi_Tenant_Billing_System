@@ -12,6 +12,7 @@ import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 /**
@@ -34,6 +35,8 @@ public class AdminUserService {
     private final UserService userService;
     private final OutboxEventPublisher outboxEventPublisher;
 
+    private final ApplicationEventPublisher eventPublisher;
+
     /**
      * Soft-deletes a user from a specific tenant schema.
      * Sets TenantContext to the target tenant before delegating to UserService.
@@ -48,7 +51,7 @@ public class AdminUserService {
         try {
             userService.deleteUser(userId);
 
-            outboxEventPublisher.save(AuditLogEvent.builder()
+            eventPublisher.publishEvent(AuditLogEvent.builder()
                     .action(AuditAction.DELETE)
                     .entityType(AuditEntityType.USER)
                     .entityId(userId)
@@ -61,7 +64,7 @@ public class AdminUserService {
                     .description("Admin removed user with ID: " + userId + " from tenant: " + tenant.getName())
                     .module("ADMIN_USER_MANAGEMENT")
                     .severity("WARN")
-                    .build(), "User", userId);
+                    .build());
 
             log.info("User removed — userId={}, tenantId={}", userId, tenantId);
         } finally {

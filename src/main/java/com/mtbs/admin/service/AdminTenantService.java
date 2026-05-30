@@ -22,6 +22,7 @@ import com.mtbs.shared.util.SecurityUtils;
 import com.mtbs.tenant.service.PlanService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -49,6 +50,8 @@ public class AdminTenantService {
     private final TenantMapper tenantMapper;
     private final PermissionCacheService permissionCacheService;
     private final PlanService planService;
+
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public Page<AdminTenantListResponse> getAllTenants(Status status, Long planId, Pageable pageable) {
@@ -97,14 +100,13 @@ public class AdminTenantService {
     @Transactional
     public TenantResponse changeTenantStatus(Long tenantId, ChangeTenantStatusRequest request) {
         log.info("Admin changing tenant status: {} to {}", tenantId, request.getStatus());
-        Tenant tenant = tenantService.getTenantById(tenantId);
 
         tenantService.updateTenantStatus(tenantId, request.getStatus());
-        tenant = tenantService.getTenantById(tenantId);
+        Tenant tenant = tenantService.getTenantById(tenantId);
 
         permissionCacheService.evictTenant(tenant.getSchemaName());
 
-        outboxEventPublisher.save(AuditLogEvent.builder()
+        eventPublisher.publishEvent(AuditLogEvent.builder()
                 .action(AuditAction.STATUS_CHANGE)
                 .entityType(AuditEntityType.TENANT)
                 .entityId(tenant.getId())
@@ -118,7 +120,7 @@ public class AdminTenantService {
                 .changesAfter(Map.of("status", request.getStatus().name()))
                 .description("Admin changed tenant status to: " + request.getStatus())
                 .module("ADMIN_TENANT_MANAGEMENT")
-                .build(), "Tenant", tenant.getId());
+                .build());
 
         return tenantMapper.toResponse(tenant);
     }
@@ -132,7 +134,7 @@ public class AdminTenantService {
         tenant.setPlan(plan);
         tenant = tenantService.saveTenant(tenant);
 
-        outboxEventPublisher.save(AuditLogEvent.builder()
+        eventPublisher.publishEvent(AuditLogEvent.builder()
                 .action(AuditAction.UPDATE)
                 .entityType(AuditEntityType.TENANT)
                 .entityId(tenant.getId())
@@ -146,7 +148,7 @@ public class AdminTenantService {
                 .changesAfter(Map.of("planId", request.getPlanId(), "planCode", plan.getCode()))
                 .description("Admin changed tenant plan to: " + plan.getCode())
                 .module("ADMIN_TENANT_MANAGEMENT")
-                .build(), "Tenant", tenant.getId());
+                .build());
 
         return tenantMapper.toResponse(tenant);
     }
@@ -173,7 +175,7 @@ public class AdminTenantService {
         tenant.setDeletedAt(Instant.now());
         tenantService.saveTenant(tenant);
 
-        outboxEventPublisher.save(AuditLogEvent.builder()
+        eventPublisher.publishEvent(AuditLogEvent.builder()
                 .action(AuditAction.DELETE)
                 .entityType(AuditEntityType.TENANT)
                 .entityId(tenant.getId())
@@ -187,7 +189,7 @@ public class AdminTenantService {
                 .description("Admin deleted tenant: " + tenant.getName())
                 .module("ADMIN_TENANT_MANAGEMENT")
                 .severity("WARN")
-                .build(), "Tenant", tenant.getId());
+                .build());
     }
 
     private AdminTenantListResponse mapToListResponse(Tenant tenant) {
