@@ -52,7 +52,8 @@ nohup.out
 # =============================================================================
 # DOCUMENTATION & GENERATED FILES
 # =============================================================================
-docs/
+# New clean documentation (tracked) — exclude reference-docs only
+reference-docs/
 /doc
 *.pdf
 *.docx

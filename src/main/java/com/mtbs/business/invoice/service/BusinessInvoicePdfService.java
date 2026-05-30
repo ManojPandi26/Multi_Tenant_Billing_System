@@ -27,7 +27,7 @@ import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.exception.ResourceException;
-import com.mtbs.shared.multitenancy.TenantContextHolder;
+import com.mtbs.shared.multitenancy.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -88,7 +88,7 @@ public class BusinessInvoicePdfService {
     @Async
     public void recordStorageUsageAsync(long fileSizeBytes) {
         try {
-            Long tenantId = TenantContextHolder.getTenantId();
+            Long tenantId = TenantContext.getTenantId();
             if (tenantId == null) {
                 log.warn("No tenant context — skipping storage recording for business invoice");
                 return;

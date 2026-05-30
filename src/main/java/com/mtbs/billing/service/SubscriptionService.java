@@ -195,7 +195,7 @@ public class SubscriptionService {
      */
     @Transactional
     public SubscriptionOrderResponse initiateUpgradeToPro(UpgradeRequest request) {
-        Plan proPlan = planService.getPlanByName("PRO");
+        Plan proPlan = planService.getPlanEntityByCode("PRO");
         return initiateUpgrade(proPlan, request.getBillingCycle());
     }
 
@@ -204,7 +204,7 @@ public class SubscriptionService {
      */
     @Transactional
     public SubscriptionOrderResponse initiateUpgradeToEnterprise(UpgradeRequest request) {
-        Plan enterprisePlan = planService.getPlanByName("ENTERPRISE");
+        Plan enterprisePlan = planService.getPlanEntityByCode("ENTERPRISE");
         return initiateUpgrade(enterprisePlan, request.getBillingCycle());
     }
 
@@ -308,7 +308,7 @@ public class SubscriptionService {
             voidPendingUpgrade(subscription);
         }
 
-        Plan freePlan = planService.getPlanByName("FREE");
+        Plan freePlan = planService.getPlanEntityByCode("FREE");
 
         if (Boolean.TRUE.equals(request.getAtPeriodEnd())) {
             // Scheduled downgrade — set fields, SubscriptionExpiryJob executes later
