@@ -1,16 +1,17 @@
 package com.mtbs.billing.controller;
 
-import com.mtbs.billing.dto.RefundRequest;
-import com.mtbs.billing.dto.OrderResponse;
-import com.mtbs.billing.dto.PaymentResponse;
-import com.mtbs.billing.dto.VerifyPaymentRequest;
+import com.mtbs.billing.dto.*;
 import com.mtbs.shared.dto.common.ApiResponse;
 import com.mtbs.billing.service.PaymentService;
+import com.mtbs.shared.dto.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +31,23 @@ import java.util.List;
 public class PaymentController {
 
     private final PaymentService paymentService;
+
+    // ── GET /api/payments ─────────────────────────────────────────────────────
+
+    @GetMapping
+    @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
+    @Operation(
+            summary = "List all payments",
+            description = "Returns a paginated list of all payments for the current tenant, " +
+                    "ordered by creation date descending. Includes all status payments " +
+                    "Requires BILLING_MANAGE permission."
+    )
+    public ResponseEntity<ApiResponse<PageResponse<PaymentResponse>>> listPayments(
+            @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
+
+        Page<PaymentResponse> response = paymentService.listPayments(pageable);
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Payments fetched successfully"));
+    }
 
     // ── POST /api/payments/process/{invoiceId} ────────────────────────────────
 

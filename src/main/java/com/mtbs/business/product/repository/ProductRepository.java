@@ -28,14 +28,24 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     /**
      * Paginated product listing with optional name search.
      * Returns active and inactive products — admin view shows the full catalog.
+     *
+     * IMPORTANT: Caller MUST pass a non-null search string. Never use this with null.
+     * Using (:search IS NULL OR LOWER(...)) causes Hibernate to infer the parameter
+     * type from the IS NULL check and bind it as bytea on PostgreSQL.
+     * Handle the null/no-search case in the service layer (see ProductService.list()).
      */
     @Query("""
         SELECT p FROM Product p
-        WHERE (:search IS NULL
-            OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')))
+        WHERE LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
         ORDER BY p.isActive DESC, p.name ASC
         """)
     Page<Product> searchProducts(@Param("search") String search, Pageable pageable);
+
+    /**
+     * Paginated list of all products — used when no search term is provided.
+     * Separate method avoids any null parameter binding entirely.
+     */
+    Page<Product> findAllByOrderByIsActiveDescNameAsc(Pageable pageable);
 
     /**
      * Find by HSN/SAC code — used for GST compliance reporting.
