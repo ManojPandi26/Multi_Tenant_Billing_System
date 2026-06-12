@@ -2,7 +2,10 @@ package com.mtbs.shared.multitenancy;
 
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.core.task.TaskDecorator;
+
+import java.util.Map;
 
 /**
  * Propagates TenantContext (tenantId + schemaName) from the submitting thread
@@ -46,6 +49,8 @@ public class TenantAwareTaskDecorator implements TaskDecorator {
         Long tenantId     = TenantContext.getTenantId();
         String schemaName = TenantContext.getSchemaName();
 
+        Map<String, String> mdcContextMap = MDC.getCopyOfContextMap();
+
         return () -> {
             try {
                 // Restore context on the WORKER thread
@@ -56,12 +61,17 @@ public class TenantAwareTaskDecorator implements TaskDecorator {
                     TenantContext.setCurrentSchema(schemaName);
                 }
 
+                if (!mdcContextMap.isEmpty()) {
+                    MDC.setContextMap(mdcContextMap);
+                }
+
                 log.trace("Async task started with tenantId={}, schema={}", tenantId, schemaName);
                 runnable.run();
 
             } finally {
                 // Always clear the worker thread after the task — thread pool reuse safety
                 TenantContext.clear();
+                MDC.clear();
                 log.trace("Async task completed, TenantContext cleared");
             }
         };
