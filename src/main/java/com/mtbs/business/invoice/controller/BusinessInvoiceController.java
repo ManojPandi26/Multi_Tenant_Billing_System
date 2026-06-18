@@ -102,7 +102,6 @@ public class BusinessInvoiceController {
     // ── POST /api/business-invoices/{id}/items ────────────────────────────────
 
     @PostMapping("/{id}/items")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
         summary = "Add a line item",
         description = "Adds a single line item to a DRAFT invoice. " +
@@ -140,7 +139,6 @@ public class BusinessInvoiceController {
     // ── POST /api/business-invoices/{id}/finalize ─────────────────────────────
 
     @PostMapping("/{id}/finalize")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
         summary = "Finalize an invoice",
         description = "Transitions a DRAFT invoice to OPEN status. " +
@@ -173,7 +171,6 @@ public class BusinessInvoiceController {
     // ── POST /api/business-invoices/{id}/void ─────────────────────────────────
 
     @PostMapping("/{id}/void")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
         summary = "Void an invoice",
         description = "Marks a DRAFT or OPEN invoice as VOID. " +
@@ -189,7 +186,6 @@ public class BusinessInvoiceController {
     // ── GET /api/business-invoices/{id}/download ──────────────────────────────
 
     @GetMapping("/{id}/download")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @Operation(
             summary = "Download invoice as PDF",
             description = "Generates and streams the invoice as a PDF file. " +

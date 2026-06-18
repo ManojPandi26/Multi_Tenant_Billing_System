@@ -116,7 +116,6 @@ public class ProductController {
     // ── PUT /api/products/{id} ────────────────────────────────────────────────
 
     @PutMapping("/{id}")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "Update a product",
