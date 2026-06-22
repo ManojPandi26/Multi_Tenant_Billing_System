@@ -1,5 +1,6 @@
 package com.mtbs.billing.service;
 
+import com.mtbs.billing.dto.pricing.PricingResult;
 import com.mtbs.billing.dto.subscription.UpgradePreviewResponse;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.shared.enums.billing.BillingCycle;
@@ -72,13 +73,62 @@ public class ProrationService {
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
+     * Full pricing computation for a plan change.
+     * <p>
+     * Returns a {@link PricingResult} containing the target plan, billing cycle,
+     * charge amount, credit amount, full cycle price, and new period dates.
+     * This is the single source of truth for pricing — always consistent.
+     *
+     * @param current     the tenant's current active subscription
+     * @param targetPlan  the plan to upgrade/downgrade to
+     * @param cycle       requested billing cycle (MONTHLY or ANNUAL)
+     * @return PricingResult with all pricing fields
+     */
+    public PricingResult calculatePricingResult(Subscription current,
+                                                Plan targetPlan,
+                                                BillingCycle cycle) {
+        Plan currentPlan = planService.getPlanById(current.getPlanId());
+
+        boolean isDowngradeToFree = "FREE".equalsIgnoreCase(targetPlan.getName());
+
+        BigDecimal fullCyclePrice = isDowngradeToFree
+                ? BigDecimal.ZERO
+                : resolveFullCyclePrice(targetPlan, cycle);
+        BigDecimal credit         = calculateCredit(current, currentPlan, cycle);
+        BigDecimal chargeAmount   = isDowngradeToFree
+                ? BigDecimal.ZERO
+                : applyRazorpayMinimum(fullCyclePrice.subtract(credit).max(BigDecimal.ZERO));
+
+        Instant newPeriodStart = Instant.now();
+        Instant newPeriodEnd   = cycle == BillingCycle.MONTHLY
+                ? newPeriodStart.plus(MONTHLY_DAYS, ChronoUnit.DAYS)
+                : newPeriodStart.plus(ANNUAL_DAYS,  ChronoUnit.DAYS);
+
+        log.debug("Pricing result: currentPlan={}, targetPlan={}, cycle={}, " +
+                  "fullCyclePrice={}, credit={}, charge={}",
+                currentPlan.getName(), targetPlan.getName(), cycle,
+                fullCyclePrice, credit, chargeAmount);
+
+        return PricingResult.builder()
+                .targetPlan(targetPlan)
+                .billingCycle(cycle)
+                .chargeAmount(chargeAmount)
+                .creditAmount(credit.compareTo(BigDecimal.ZERO) > 0 ? credit : null)
+                .fullCyclePrice(fullCyclePrice)
+                .periodStart(newPeriodStart)
+                .periodEnd(newPeriodEnd)
+                .currency(resolveCurrency(targetPlan))
+                .build();
+    }
+
+    /**
      * Builds a full preview of what the user will be charged for a plan upgrade.
      * Called by GET /api/subscriptions/upgrade/preview.
      * No DB writes — pure read + calculation.
      *
-     * @param current     the tenant's current active subscription
+     * @param current      the tenant's current active subscription
      * @param targetPlanId ID of the plan to upgrade/downgrade to
-     * @param cycle       requested billing cycle (MONTHLY or ANNUAL)
+     * @param cycle        requested billing cycle (MONTHLY or ANNUAL)
      * @return populated UpgradePreviewResponse ready to return to the frontend
      */
     public UpgradePreviewResponse buildPreview(Subscription current,
@@ -90,52 +140,35 @@ public class ProrationService {
 
         validateUpgradeTarget(current, targetPlan);
 
-        boolean isDowngradeToFree = "FREE".equalsIgnoreCase(targetPlan.getName());
-
-        BigDecimal fullCyclePrice = resolveFullCyclePrice(targetPlan, cycle);
-        BigDecimal credit         = calculateCredit(current, currentPlan, cycle);
-        BigDecimal chargeAmount   = isDowngradeToFree
-                ? BigDecimal.ZERO
-                : applyRazorpayMinimum(fullCyclePrice.subtract(credit).max(BigDecimal.ZERO));
-
-        boolean noPaymentRequired = chargeAmount.compareTo(BigDecimal.ZERO) == 0;
-
-        Instant newPeriodStart = Instant.now();
-        Instant newPeriodEnd   = cycle == BillingCycle.MONTHLY
-                ? newPeriodStart.plus(MONTHLY_DAYS, ChronoUnit.DAYS)
-                : newPeriodStart.plus(ANNUAL_DAYS,  ChronoUnit.DAYS);
+        PricingResult pricing = calculatePricingResult(current, targetPlan, cycle);
 
         int remainingDays = remainingDays(current);
         int totalDays     = totalPeriodDays(current.getBillingCycle());
 
         String noPaymentReason = null;
-        if (isDowngradeToFree) {
+        if ("FREE".equalsIgnoreCase(targetPlan.getName())) {
             noPaymentReason = "Downgrading to the Free plan has no cost.";
-        } else if (noPaymentRequired && credit.compareTo(BigDecimal.ZERO) > 0) {
+        } else if (!pricing.isPaymentRequired() && pricing.getCreditAmount() != null
+                && pricing.getCreditAmount().compareTo(BigDecimal.ZERO) > 0) {
             noPaymentReason = "Your proration credit covers the full upgrade amount.";
         }
-
-        log.debug("Upgrade preview: currentPlan={}, targetPlan={}, cycle={}, " +
-                  "fullCyclePrice={}, credit={}, charge={}",
-                currentPlan.getName(), targetPlan.getName(), cycle,
-                fullCyclePrice, credit, chargeAmount);
 
         return UpgradePreviewResponse.builder()
                 .targetPlanId(targetPlan.getId())
                 .targetPlanName(targetPlan.getDisplayName())
                 .billingCycle(cycle)
-                .fullCyclePrice(fullCyclePrice)
-                .creditAmount(credit.compareTo(BigDecimal.ZERO) > 0 ? credit : null)
-                .remainingDays(credit.compareTo(BigDecimal.ZERO) > 0 ? remainingDays : null)
-                .totalPeriodDays(credit.compareTo(BigDecimal.ZERO) > 0 ? totalDays : null)
-                .chargeAmount(chargeAmount)
-                .chargeAmountPaise(toPaise(chargeAmount))
+                .fullCyclePrice(pricing.getFullCyclePrice())
+                .creditAmount(pricing.getCreditAmount())
+                .remainingDays(pricing.getCreditAmount() != null ? remainingDays : null)
+                .totalPeriodDays(pricing.getCreditAmount() != null ? totalDays : null)
+                .chargeAmount(pricing.getChargeAmount())
+                .chargeAmountPaise(toPaise(pricing.getChargeAmount()))
                 .currency(resolveCurrency(targetPlan))
-                .noPaymentRequired(noPaymentRequired)
+                .noPaymentRequired(!pricing.isPaymentRequired())
                 .noPaymentReason(noPaymentReason)
-                .downgrade(isDowngradeToFree)
-                .newPeriodStart(newPeriodStart)
-                .newPeriodEnd(newPeriodEnd)
+                .downgrade("FREE".equalsIgnoreCase(targetPlan.getName()))
+                .newPeriodStart(pricing.getPeriodStart())
+                .newPeriodEnd(pricing.getPeriodEnd())
                 .currentPlanName(currentPlan.getDisplayName())
                 .currentBillingCycle(current.getBillingCycle())
                 .currentPeriodEnd(current.getCurrentPeriodEnd())
@@ -144,28 +177,19 @@ public class ProrationService {
 
     /**
      * Calculates the amount to charge in rupees for an upgrade.
-     * Used directly by SubscriptionService.initiateUpgrade() to create
-     * the Razorpay order amount.
+     * <p>
+     * Convenience wrapper around {@link #calculatePricingResult}.
+     * Use {@link #calculatePricingResult} when you need full pricing context.
      *
-     * @param current       current subscription
-     * @param targetPlan    target plan entity
-     * @param cycle         requested billing cycle
+     * @param current    current subscription
+     * @param targetPlan target plan entity
+     * @param cycle      requested billing cycle
      * @return charge amount in INR (BigDecimal, 2 decimal places)
-     *         Returns ZERO for FREE target or when credit covers full cost.
      */
     public BigDecimal calculateChargeAmount(Subscription current,
                                             Plan targetPlan,
                                             BillingCycle cycle) {
-        if ("FREE".equalsIgnoreCase(targetPlan.getName())) {
-            return BigDecimal.ZERO;
-        }
-
-        Plan currentPlan  = planService.getPlanById(current.getPlanId());
-        BigDecimal fullCyclePrice = resolveFullCyclePrice(targetPlan, cycle);
-        BigDecimal credit         = calculateCredit(current, currentPlan, cycle);
-        BigDecimal raw            = fullCyclePrice.subtract(credit).max(BigDecimal.ZERO);
-
-        return applyRazorpayMinimum(raw);
+        return calculatePricingResult(current, targetPlan, cycle).getChargeAmount();
     }
 
     /**
@@ -218,7 +242,6 @@ public class ProrationService {
     private BigDecimal calculateCredit(Subscription current,
                                        Plan currentPlan,
                                        BillingCycle targetCycle) {
-        // No credit for FREE or TRIALING — these have no monetary value
         if ("FREE".equalsIgnoreCase(currentPlan.getName())) {
             return BigDecimal.ZERO;
         }
@@ -227,7 +250,7 @@ public class ProrationService {
                 case TRIALING, EXPIRED, CANCELLED, PAST_DUE, UNPAID -> {
                     return BigDecimal.ZERO;
                 }
-                default -> { /* ACTIVE — continue to calculate credit */ }
+                default -> { }
             }
         }
 
@@ -243,11 +266,9 @@ public class ProrationService {
             return BigDecimal.ZERO;
         }
 
-        // dailyRate = currentCyclePrice / totalDays  (6dp for precision)
         BigDecimal dailyRate = currentCyclePrice.divide(
                 BigDecimal.valueOf(totalDays), 6, RoundingMode.HALF_UP);
 
-        // credit = dailyRate × remainingDays  (2dp for currency)
         BigDecimal credit = dailyRate.multiply(BigDecimal.valueOf(remaining))
                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -261,8 +282,6 @@ public class ProrationService {
 
     /**
      * Returns the full price for a plan + billing cycle combination.
-     * Throws ResourceException.invalid() if the plan has no price configured
-     * for the requested cycle (should never happen with seeded plans).
      */
     private BigDecimal resolveFullCyclePrice(Plan plan, BillingCycle cycle) {
         BigDecimal price = switch (cycle) {
@@ -278,9 +297,7 @@ public class ProrationService {
     }
 
     /**
-     * Total days in a billing period — used as the denominator for proration.
-     * MONTHLY = 30 days (simplified fixed month, consistent with period creation)
-     * ANNUAL  = 365 days
+     * Total days in a billing period.
      */
     private int totalPeriodDays(BillingCycle cycle) {
         return cycle == BillingCycle.ANNUAL ? ANNUAL_DAYS : MONTHLY_DAYS;
@@ -289,7 +306,6 @@ public class ProrationService {
     /**
      * If chargeAmount is positive but below Razorpay's ₹1 minimum, round up
      * to ₹1. This prevents order creation failures at the gateway.
-     * If chargeAmount is ZERO, return ZERO (no payment required — no order created).
      */
     private BigDecimal applyRazorpayMinimum(BigDecimal amount) {
         if (amount.compareTo(BigDecimal.ZERO) > 0
@@ -302,27 +318,14 @@ public class ProrationService {
 
     /**
      * Returns currency from the plan, defaulting to "INR" if not configured.
-     * All current plans use INR but this guards against null if a future plan
-     * has a null currency column.
      */
     private String resolveCurrency(Plan plan) {
-        return (planService.getCurrencyForPlan(plan.getId()) != null && planService.getCurrencyForPlan(plan.getId()).isBlank())
-                ? planService.getCurrencyForPlan(plan.getId())
-                : "INR";
+        String currency = planService.getCurrencyForPlan(plan.getId());
+        return (currency != null && !currency.isBlank()) ? currency : "INR";
     }
 
     /**
      * Guards against invalid upgrade combinations before doing any math.
-     *
-     * BLOCKED:
-     *   - Upgrading to the SAME plan (use /cycle endpoint for cycle change)
-     *   - Target plan is not active
-     *
-     * ALLOWED but handled differently:
-     *   - Any plan → FREE  (downgrade — no payment, treated separately in service)
-     *   - FREE → any paid  (no credit, full price)
-     *   - TRIALING → paid  (no credit, full price)
-     *   - Paid → higher paid (proration credit applied)
      */
     private void validateUpgradeTarget(Subscription current, Plan targetPlan) {
         if (Boolean.FALSE.equals(targetPlan.getIsActive())) {

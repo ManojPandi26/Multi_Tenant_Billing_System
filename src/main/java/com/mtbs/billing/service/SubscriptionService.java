@@ -1,5 +1,7 @@
 package com.mtbs.billing.service;
 
+import com.mtbs.billing.dto.invoice.InvoiceGenerationRequest;
+import com.mtbs.billing.dto.pricing.PricingResult;
 import com.mtbs.billing.dto.subscription.CycleChangeRequest;
 import com.mtbs.billing.dto.subscription.DowngradeRequest;
 import com.mtbs.billing.dto.subscription.SubscriptionOrderResponse;
@@ -13,10 +15,10 @@ import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.billing.mapper.SubscriptionMapper;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.enums.billing.BillingCycle;
+import com.mtbs.shared.enums.billing.InvoiceType;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.shared.event.billing.PaymentCapturedEvent;
 import com.mtbs.shared.event.audit.AuditLogEvent;
 import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
@@ -34,9 +36,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
-
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -47,35 +46,37 @@ import java.util.Optional;
 
 /**
  * Manages the full subscription lifecycle for a tenant.
- *
+ * <p>
  * ── ENDPOINT MAP ─────────────────────────────────────────────────────────────
- *
- *   GET  /api/subscriptions/current          → getCurrentSubscription()
- *   GET  /api/subscriptions/upgrade/preview  → previewUpgrade()
- *   POST /api/subscriptions/upgrade/pro      → initiateUpgradeToPro()
- *   POST /api/subscriptions/upgrade/enterprise → initiateUpgradeToEnterprise()
- *   POST /api/subscriptions/downgrade/free   → downgradeToFree()
- *   POST /api/subscriptions/cycle            → changeBillingCycle()
- *   POST /api/subscriptions/cancel           → cancelSubscription()
- *   POST /api/subscriptions/reactivate       → reactivate()
- *   POST /api/subscriptions/activate         → activateSubscription()  [trial → paid]
- *
+ * <p>
+ * GET  /api/subscriptions/current          → getCurrentSubscription()
+ * GET  /api/subscriptions/upgrade/preview  → previewUpgrade()
+ * POST /api/subscriptions/upgrade/pro      → initiateUpgradeToPro()
+ * POST /api/subscriptions/upgrade/enterprise → initiateUpgradeToEnterprise()
+ * POST /api/subscriptions/downgrade/free   → downgradeToFree()
+ * POST /api/subscriptions/cycle            → changeBillingCycle()
+ * POST /api/subscriptions/cancel           → cancelSubscription()
+ * POST /api/subscriptions/reactivate       → reactivate()
+ * POST /api/subscriptions/activate         → activateSubscription()  [trial → paid]
+ * <p>
  * ── UPGRADE FLOW (2-step) ────────────────────────────────────────────────────
- *
- *   Step 1: initiateUpgrade*() creates OPEN Invoice + Razorpay order,
- *           sets upgradePendingInvoiceId + upgradePendingPlanId on subscription,
- *           returns SubscriptionOrderResponse for frontend Razorpay checkout.
- *
- *   Step 2: POST /api/payments/verify (PaymentService) verifies signature,
- *           calls activateUpgradeAfterPayment(invoiceId) which swaps planId,
- *           clears pending upgrade fields, fires PLAN_UPGRADED notification.
- *
+ * <p>
+ * Step 1: initiateUpgrade*() creates OPEN Invoice + Razorpay order,
+ * sets upgradePendingInvoiceId + upgradePendingPlanId on subscription,
+ * returns SubscriptionOrderResponse for frontend Razorpay checkout.
+ * <p>
+ * Step 2: Frontend callback POST /api/payments/verify verifies signature only.
+ * Razorpay webhook → PaymentService.handlePaymentSuccess() marks payment
+ * SUCCEEDED + invoice PAID, then calls activatePendingUpgradeIfPresent(invoiceId)
+ * which triggers activateUpgradeAfterPayment() — swaps planId, clears pending
+ * upgrade fields, fires PLAN_UPGRADED notification.
+ * <p>
  * ── INVARIANTS ───────────────────────────────────────────────────────────────
- *
- *   - planId on Subscription only changes AFTER payment is verified.
- *   - upgradePendingInvoiceId != null  ↔  an upgrade checkout is in flight.
- *   - cancelAtPeriodEnd=true never co-exists with upgradePending=true.
- *   - Scheduled downgrade is cleared if tenant upgrades before period end.
+ * <p>
+ * - planId on Subscription only changes AFTER payment is verified.
+ * - upgradePendingInvoiceId != null  ↔  an upgrade checkout is in flight.
+ * - cancelAtPeriodEnd=true never co-exists with upgradePending=true.
+ * - Scheduled downgrade is cleared if tenant upgrades before period end.
  */
 @Service
 @RequiredArgsConstructor
@@ -189,7 +190,7 @@ public class SubscriptionService {
      * Initiates an upgrade to the PRO plan.
      * Creates an OPEN invoice, a Razorpay order, and marks the subscription
      * with the pending upgrade details.
-     *
+     * <p>
      * Returns SubscriptionOrderResponse — the frontend opens Razorpay checkout,
      * then calls POST /api/payments/verify on success.
      */
@@ -211,18 +212,19 @@ public class SubscriptionService {
     // ── Upgrade — Step 2 (called by PaymentService after verify) ─────────────
 
     /**
-     * Activates a pending upgrade after payment is verified by Razorpay.
-     *
-     * Called by PaymentService.handleSubscriptionUpgradePayment(invoiceId)
-     * which is triggered after POST /api/payments/verify succeeds.
-     *
+     * Activates a pending upgrade after payment is captured by Razorpay.
+     * <p>
+     * Called via {@link #activatePendingUpgradeIfPresent} which is called by
+     * {@link com.mtbs.billing.service.PaymentService#handlePaymentSuccess}
+     * after the payment is captured and invoice is marked paid.
+     * <p>
      * This method:
-     *   1. Finds the subscription linked to the paid invoice
-     *   2. Swaps planId to the pending target plan
-     *   3. Sets new billing period starting from now
-     *   4. Clears all pending upgrade fields
-     *   5. Clears any scheduled downgrade (upgrade wins)
-     *   6. Fires PLAN_UPGRADED notification
+     * 1. Finds the subscription linked to the paid invoice
+     * 2. Swaps planId to the pending target plan
+     * 3. Sets new billing period starting from now
+     * 4. Clears all pending upgrade fields
+     * 5. Clears any scheduled downgrade (upgrade wins)
+     * 6. Fires PLAN_UPGRADED notification
      *
      * @param invoiceId the invoice that was just paid
      */
@@ -283,14 +285,14 @@ public class SubscriptionService {
 
     /**
      * Downgrades the current subscription to the FREE plan.
-     *
+     * <p>
      * atPeriodEnd=true  → scheduled: FREE takes effect when current period expires.
-     *                     User retains PRO/ENTERPRISE features until then.
-     *                     No refund. SubscriptionExpiryJob executes at period end.
-     *
+     * User retains PRO/ENTERPRISE features until then.
+     * No refund. SubscriptionExpiryJob executes at period end.
+     * <p>
      * atPeriodEnd=false → immediate: FREE takes effect now.
-     *                     No refund for unused period. Rare — admin use case.
-     *
+     * No refund for unused period. Rare — admin use case.
+     * <p>
      * Rejects FREE → FREE downgrade attempts.
      */
     @CacheEvict(value = "dashboard", allEntries = true)
@@ -354,15 +356,15 @@ public class SubscriptionService {
 
     /**
      * Changes the billing cycle on the current plan.
-     *
+     * <p>
      * MONTHLY → ANNUAL: requires payment (full annual price minus proration credit).
-     *   Returns SubscriptionOrderResponse — same 2-step payment flow as upgrade.
-     *   New period of 365 days starts from payment date.
-     *
+     * Returns SubscriptionOrderResponse — same 2-step payment flow as upgrade.
+     * New period of 365 days starts from payment date.
+     * <p>
      * ANNUAL → MONTHLY: no payment needed, scheduled at period end.
-     *   Returns SubscriptionResponse with scheduledBillingCycle set.
-     *   BillingCycleJob switches cycle at renewal.
-     *
+     * Returns SubscriptionResponse with scheduledBillingCycle set.
+     * BillingCycleJob switches cycle at renewal.
+     * <p>
      * Rejects same-cycle requests.
      */
     @Transactional
@@ -399,11 +401,11 @@ public class SubscriptionService {
 
     /**
      * Cancels the current subscription.
-     *
+     * <p>
      * atPeriodEnd=true  → sets cancelAtPeriodEnd flag; subscription stays ACTIVE
-     *                     and SubscriptionExpiryJob cancels it at period end.
+     * and SubscriptionExpiryJob cancels it at period end.
      * atPeriodEnd=false → cancels immediately (status = CANCELLED).
-     *
+     * <p>
      * Blocked if subscription is already scheduled for cancellation.
      * Blocked if subscription is not ACTIVE or TRIALING.
      */
@@ -537,7 +539,9 @@ public class SubscriptionService {
 
     // ── Scheduler-only ────────────────────────────────────────────────────────
 
-    /** Called by TrialExpiryJob and SubscriptionExpiryJob. */
+    /**
+     * Called by TrialExpiryJob and SubscriptionExpiryJob.
+     */
     @Transactional
     public void expireSubscription(Long subscriptionId) {
         Subscription sub = subscriptionRepository.findById(subscriptionId)
@@ -574,7 +578,7 @@ public class SubscriptionService {
     public void markTrialAsPastDue(Long subscriptionId) {
         Subscription sub = subscriptionRepository.findById(subscriptionId)
                 .orElseThrow(() -> ResourceException.notFound("Subscription", subscriptionId));
-        
+
         Plan plan = planService.getPlanById(sub.getPlanId());
         sub.setStatus(SubscriptionStatus.PAST_DUE);
         subscriptionRepository.save(sub);
@@ -595,7 +599,9 @@ public class SubscriptionService {
                 .build(), "Subscription", sub.getId());
     }
 
-    /** Called by SubscriptionExpiryJob after grace period expires. */
+    /**
+     * Called by SubscriptionExpiryJob after grace period expires.
+     */
     @Transactional
     public void suspendForNonPayment(Long subscriptionId) {
         Subscription sub = subscriptionRepository.findById(subscriptionId)
@@ -693,7 +699,9 @@ public class SubscriptionService {
                 sub.getBillingCycle(), subscriptionId);
     }
 
-    /** Called by SubscriptionCancelJob when cancelAtPeriodEnd=true and period has ended. */
+    /**
+     * Called by SubscriptionCancelJob when cancelAtPeriodEnd=true and period has ended.
+     */
     @CacheEvict(value = "dashboard", allEntries = true)
     @Transactional
     public void executeScheduledCancellation(Long subscriptionId) {
@@ -840,21 +848,19 @@ public class SubscriptionService {
             try {
                 response.setPendingUpgradePlanName(
                         planService.getPlanById(sub.getUpgradePendingPlanId()).getDisplayName());
-            } catch (Exception ignored) { }
+            } catch (Exception ignored) {
+            }
         }
 
         if (sub.hasScheduledDowngrade()) {
             try {
                 response.setScheduledDowngradePlan(
                         planService.getPlanById(sub.getScheduledDowngradePlanId()).getDisplayName());
-            } catch (Exception ignored) { }
+            } catch (Exception ignored) {
+            }
         }
 
         return response;
-    }
-
-    public SubscriptionResponse mapToResponse(Subscription sub) {
-        return mapToSubscriptionResponse(sub);
     }
 
     // ── Private: core upgrade flow ────────────────────────────────────────────
@@ -862,7 +868,7 @@ public class SubscriptionService {
     /**
      * Core upgrade initiation shared by initiateUpgradeToPro()
      * and initiateUpgradeToEnterprise() and MONTHLY→ANNUAL cycle change.
-     *
+     * <p>
      * Validates state, calculates charge, creates invoice, creates Razorpay order,
      * stamps pending upgrade fields on the subscription.
      */
@@ -889,24 +895,25 @@ public class SubscriptionService {
                     subscription.getStatus().name(), targetPlan.getName());
         }
 
-        BigDecimal chargeAmount = prorationService.calculateChargeAmount(
+        Plan currentPlan = planService.getPlanById(subscription.getPlanId());
+        PricingResult pricing = prorationService.calculatePricingResult(
                 subscription, targetPlan, cycle);
 
-        // Build new billing period (used for preview; actual period set after payment)
-        Instant newPeriodStart = Instant.now();
-        Instant newPeriodEnd = cycle == BillingCycle.MONTHLY
-                ? newPeriodStart.plus(Duration.ofDays(30))
-                : newPeriodStart.plus(Duration.ofDays(365));
+        // Create invoice using the pricing result (target plan + charge amount)
+        InvoiceGenerationRequest invoiceRequest = InvoiceGenerationRequest.builder()
+                .subscriptionId(subscription.getId())
+                .periodStart(pricing.getPeriodStart())
+                .periodEnd(pricing.getPeriodEnd())
+                .pricing(pricing)
+                .build();
 
-        // Create invoice for the upgrade charge
-        InvoiceResponse invoice = invoiceService.generateInvoice(
-                subscription.getId(), newPeriodStart, newPeriodEnd);
+        InvoiceResponse invoice = invoiceService.generateInvoice(invoiceRequest);
         invoiceService.finalizeInvoice(invoice.getId());
 
         // Create Razorpay order
-        long amountPaise = prorationService.toPaise(chargeAmount);
+        long amountPaise = prorationService.toPaise(pricing.getChargeAmount());
         String receipt = "upgrade-" + TenantContext.getTenantId() + "-" + invoice.getId();
-        OrderResponse order = paymentService.processPayment(invoice.getId());
+        OrderResponse order = paymentService.processPayment(invoice.getId(), InvoiceType.UPGRADE);
 
         // Stamp pending upgrade on subscription — planId unchanged until payment verified
         subscription.setUpgradePendingInvoiceId(invoice.getId());
@@ -914,19 +921,13 @@ public class SubscriptionService {
         subscription.setUpgradePendingRazorpayOrderId(order.getOrderId());
         subscriptionRepository.save(subscription);
 
-        log.info("Upgrade initiated — from={}, to={}, cycle={}, charge={}INR, orderId={}, tenantId={}",
-                planService.getPlanById(subscription.getPlanId()).getName(),
-                targetPlan.getName(), cycle, chargeAmount,
-                order.getOrderId(), TenantContext.getTenantId());
-
-        BigDecimal prorationCredit = null;
-        if (!"FREE".equalsIgnoreCase(planService.getPlanById(subscription.getPlanId()).getName())) {
-            BigDecimal fullPrice = cycle == BillingCycle.MONTHLY
-                    ? planService.getPriceMonthly(targetPlan.getId()) : planService.getPriceAnnual(targetPlan.getId());
-            if (fullPrice != null && chargeAmount.compareTo(fullPrice) < 0) {
-                prorationCredit = fullPrice.subtract(chargeAmount);
-            }
-        }
+        log.info("Upgrade initiated — tenantId={}, subscriptionId={}, " +
+                        "currentPlan={}, targetPlan={}, billingCycle={}, " +
+                        "chargeAmount={}, creditAmount={}, invoiceId={}",
+                TenantContext.getTenantId(), subscription.getId(),
+                currentPlan.getName(), targetPlan.getName(), cycle,
+                pricing.getChargeAmount(), pricing.getCreditAmount(),
+                invoice.getId());
 
         return SubscriptionOrderResponse.builder()
                 .razorpayOrderId(order.getOrderId())
@@ -938,10 +939,10 @@ public class SubscriptionService {
                 .invoiceNumber(invoice.getInvoiceNumber())
                 .targetPlanName(targetPlan.getDisplayName())
                 .billingCycle(cycle)
-                .chargeAmount(chargeAmount)
-                .prorationCredit(prorationCredit)
-                .newPeriodStart(newPeriodStart)
-                .newPeriodEnd(newPeriodEnd)
+                .chargeAmount(pricing.getChargeAmount())
+                .prorationCredit(pricing.getCreditAmount())
+                .newPeriodStart(pricing.getPeriodStart())
+                .newPeriodEnd(pricing.getPeriodEnd())
                 .orderExpiresAt(Instant.now().plus(Duration.ofMinutes(15)))
                 .build();
     }
@@ -964,20 +965,16 @@ public class SubscriptionService {
     // ── Private: guards ───────────────────────────────────────────────────────
 
     /**
-     * Listens for successful payment capture.
-     * If the paid invoice is linked to a pending upgrade, activates it.
-     *
-     * Runs synchronously in the SAME transaction as verifyAndCapturePayment()
-     * because @TransactionalEventListener(BEFORE_COMMIT) inherits the caller's tx.
-     * If activation fails → entire payment verify rolls back. ✅ Same guarantee.
+     * Called by {@link PaymentService#handlePaymentSuccess} after a payment is captured.
+     * Activates the pending upgrade if the paid invoice was for a subscription upgrade.
+     * TenantContext is already set by the webhook orchestrator.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onPaymentCaptured(PaymentCapturedEvent event) {
-        subscriptionRepository.findByUpgradePendingInvoiceId(event.getInvoiceId())
+    public void activatePendingUpgradeIfPresent(Long invoiceId) {
+        subscriptionRepository.findByUpgradePendingInvoiceId(invoiceId)
                 .ifPresent(subscription -> {
                     log.info("Invoice {} was a subscription upgrade — activating for subscriptionId={}",
-                            event.getInvoiceId(), subscription.getId());
-                    activateUpgradeAfterPayment(event.getInvoiceId());
+                            invoiceId, subscription.getId());
+                    activateUpgradeAfterPayment(invoiceId);
                 });
     }
 
@@ -1037,6 +1034,6 @@ public class SubscriptionService {
                     .build(), "Subscription", sub.getId());
         } catch (Exception e) {
             log.warn("Failed to fire upgrade event: {}", type, e.getMessage());
+        }
     }
-}
 }

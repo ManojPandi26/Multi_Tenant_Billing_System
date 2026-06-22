@@ -73,18 +73,19 @@ public class PaymentController {
     @PostMapping("/verify")
     @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
-            summary = "Verify and capture payment",
-            description = "Verifies the Razorpay payment signature after the user completes checkout. " +
-                    "On success: marks payment SUCCEEDED, marks invoice PAID, " +
-                    "activates subscription if in trial. " +
+            summary = "Verify Razorpay payment signature",
+            description = "Verifies the Razorpay payment signature from the frontend checkout callback. " +
+                    "This is a pure signature check — no DB state changes are made. " +
+                    "Actual payment processing (marking paid, activating upgrade) happens " +
+                    "via the Razorpay webhook handler. " +
                     "Returns 400 if the signature is invalid. " +
                     "Requires BILLING_MANAGE permission."
     )
-    public ResponseEntity<ApiResponse<PaymentResponse>> verifyAndCapturePayment(
+    public ResponseEntity<ApiResponse<VerifyPaymentResponse>> verifyPayment(
             @Valid @RequestBody VerifyPaymentRequest request) {
 
-        PaymentResponse response = paymentService.verifyAndCapturePayment(request);
-        return ResponseEntity.ok(ApiResponse.success(response, "Payment verified and captured successfully"));
+        VerifyPaymentResponse response = paymentService.verifyPayment(request);
+        return ResponseEntity.ok(ApiResponse.success(response, "Payment signature verified successfully"));
     }
 
     // ── POST /api/payments/{id}/retry ─────────────────────────────────────────

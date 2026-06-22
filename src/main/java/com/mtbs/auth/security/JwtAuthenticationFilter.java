@@ -121,6 +121,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.clearContext();
             TenantContext.clear();
             sendUnauthorized(response, "UNAUTHORIZED", "Authorization service unavailable");
+        } finally {
+            TenantContext.clear();
         }
     }
 

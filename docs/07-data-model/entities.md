@@ -21,7 +21,7 @@ related_documents:
 
 ## Executive Summary
 
-The MTBS data model consists of ~20 JPA entities split across two scopes: **public schema** (tenant records, plans, permissions, audit logs, super-admins) and **tenant schemas** (users, roles, subscriptions, invoices, payments, usage). All entities extend `AuditableEntity` for automatic tracking of creation/modification timestamps and authors. Entities use soft-delete patterns, Hibernate multitenancy routing, and cascade behaviors to maintain data integrity across schema boundaries. Understanding the entity model is **critical for any data access, migration, or business logic work**.
+The MTBS data model consists of ~20 JPA entities split across two scopes: **public schema** (tenant records, plans, permissions, audit logs, super-admins, payment order mappings) and **tenant schemas** (users, roles, subscriptions, invoices, payments, usage). All entities extend `AuditableEntity` for automatic tracking of creation/modification timestamps and authors. Entities use soft-delete patterns, Hibernate multitenancy routing, and cascade behaviors to maintain data integrity across schema boundaries. Understanding the entity model is **critical for any data access, migration, or business logic work**.
 
 ---
 
@@ -43,7 +43,7 @@ MTBS uses **schema-per-tenant** architecture, which means entities live in two d
 
 | Scope | Schema | Entities | Accessed By | Lifetime |
 |-------|--------|----------|--------|----------|
-| **Platform** | `public` | Tenant, Plan, Permission, PlatformAdmin, AuditLog | Platform admins + all tenants | Permanent (never deleted) |
+| **Platform** | `public` | Tenant, Plan, Permission, PlatformAdmin, AuditLog, PaymentOrderMapping | Platform admins + all tenants | Permanent (never deleted) |
 | **Tenant** | `s_{tenantId}` (e.g., `s_456`) | User, Role, Subscription, Invoice, Payment, UsageRecord | Only tenant's users (via TenantContext) | Scoped to tenant lifetime |
 
 **Critical consequence:** All tenant-scoped entities MUST be accessed AFTER `TenantContext.setTenantId()` and `TenantContext.setCurrentSchema()`. Accessing before results in queries hitting the **wrong schema**.
@@ -342,6 +342,32 @@ public class AuditLog extends AuditableEntity {
 ```
 
 **Immutable once created** (no updates). Written by `AuditEventListener` when `@DomainEvent` is published. Searchable by admin dashboard for compliance.
+
+
+#### PaymentOrderMapping
+
+```java
+@Entity
+@Table(name = "payment_order_mapping", schema = "public")
+public class PaymentOrderMapping extends AuditableEntity {
+
+    private String razorpayOrderId;      // Unique — Razorpay order ID
+    private String razorpayPaymentId;    // Set by webhook after payment
+    private Long tenantId;               // Resolved tenant ID
+    private String schemaName;           // Tenant's DB schema name
+    private String domain;               // "PLATFORM" or "BUSINESS"
+    private InvoiceType invoiceType;     // UPGRADE, RENEWAL, CUSTOMER_INVOICE, ADDON, MANUAL
+    private Long invoiceId;              // FK to tenant-schema invoice
+}
+```
+
+**Purpose:** Cross-schema lookup table that maps `razorpay_order_id → tenant context`. Populated at order creation (when `TenantContext` is set via JWT) and queried by the webhook orchestrator (when `TenantContext` is NOT set — webhook endpoint is public).
+
+**Why it exists:** The `Payment` entity lives in the tenant schema and has no `tenantId` field. The webhook endpoint receives only `razorpay_order_id` and cannot resolve the tenant without this mapping table.
+
+**Populated by:** `PaymentService.createNewOrder()` when a new Razorpay order is created.
+
+**Queried by:** `PlatformPaymentTenantResolver.resolve()` in the webhook orchestrator.
 
 
 ---
@@ -1090,6 +1116,7 @@ PaymentService.verifyAndCapturePayment()
 | Product | [BUS-8] | [src/main/java/com/mtbs/business/product/entity/Product.java](../../src/main/java/com/mtbs/business/product/entity/Product.java) | Product offered by tenant |
 | BusinessInvoice | [BUS-15] | [src/main/java/com/mtbs/business/invoice/entity/BusinessInvoice.java](../../src/main/java/com/mtbs/business/invoice/entity/BusinessInvoice.java) | Tenant's invoice to customer |
 | AuditLog | [ADM-5] | [src/main/java/com/mtbs/admin/service/AuditLogService.java](../../src/main/java/com/mtbs/admin/service/AuditLogService.java) | Audit trail (immutable) |
+| PaymentOrderMapping | — | [src/main/java/com/mtbs/shared/multitenancy/entity/PaymentOrderMapping.java](../../src/main/java/com/mtbs/shared/multitenancy/entity/PaymentOrderMapping.java) | Cross-schema webhook tenant lookup |
 
 
 ## Rules & Constraints

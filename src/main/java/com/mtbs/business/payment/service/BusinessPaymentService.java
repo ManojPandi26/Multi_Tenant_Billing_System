@@ -9,14 +9,15 @@ import com.mtbs.business.payment.entity.BusinessPayment;
 import com.mtbs.business.payment.mapper.BusinessPaymentMapper;
 import com.mtbs.business.customer.entity.Customer;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
+import com.mtbs.shared.enums.billing.PaymentMethod;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.business.payment.repository.BusinessPaymentRepository;
 import com.mtbs.billing.gateway.PaymentGatewayPort;
+import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.service.TenantService;
-import com.mtbs.shared.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,7 +52,6 @@ public class BusinessPaymentService {
     private final CustomerService customerService;
     private final TenantService tenantService;
     private final OutboxEventPublisher outboxEventPublisher;
-    private final PaymentGatewayPort paymentGateway;
     private final BusinessPaymentMapper paymentMapper;
 
     // ── Record payment ────────────────────────────────────────────────────────
@@ -118,6 +118,78 @@ public class BusinessPaymentService {
         return paymentMapper.toResponse(saved);
     }
 
+    /**
+     * Records a payment from a Razorpay Payment Link webhook ({@code payment_link.paid}).
+     * <p>
+     * Called by {@code BusinessInvoiceWebhookHandler} after the orchestrator has
+     * resolved the tenant and set {@code TenantContext}. The webhook payload has
+     * already been verified for HMAC authenticity.
+     * <p>
+     * Unlike {@link #record(Long, RecordPaymentRequest)}, this method accepts raw
+     * webhook fields directly — amount in paise, Razorpay method string, etc.
+     */
+    @Transactional
+    public void recordWebhookPayment(Long invoiceId, Long amountPaise, String currency,
+                                     String razorpayMethod, String paymentLinkId) {
+        BusinessInvoice invoice = invoiceService.getEntityById(invoiceId);
+
+        if (invoice.getStatus() != InvoiceStatus.OPEN) {
+            log.warn("BusinessInvoice {} is not OPEN (status={}), skipping webhook payment",
+                    invoiceId, invoice.getStatus());
+            return;
+        }
+
+        BigDecimal amount = BigDecimal.valueOf(amountPaise)
+                .divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Webhook payment amount {} is not positive for invoiceId={}, skipping", amount, invoiceId);
+            return;
+        }
+
+        // Check for idempotency — same payment_link_id already recorded
+        boolean alreadyRecorded = paymentRepository.findAllByInvoiceId(invoiceId)
+                .stream()
+                .anyMatch(p -> paymentLinkId.equals(p.getRazorpayPaymentLinkId()));
+        if (alreadyRecorded) {
+            log.info("Webhook payment already recorded for invoiceId={}, paymentLinkId={}, skipping",
+                    invoiceId, paymentLinkId);
+            return;
+        }
+
+        BigDecimal alreadyPaid = paymentRepository.sumAmountByInvoiceId(invoiceId);
+
+        if (amount.compareTo(invoice.getTotalAmount().subtract(alreadyPaid)) > 0) {
+            log.warn("Webhook payment amount {} exceeds outstanding {} for invoiceId={}, skipping",
+                    amount, invoice.getTotalAmount().subtract(alreadyPaid), invoiceId);
+            return;
+        }
+
+        BusinessPayment payment = BusinessPayment.builder()
+                .invoiceId(invoiceId)
+                .amount(amount)
+                .currency(currency != null ? currency : invoice.getCurrency())
+                .method(PaymentMethod.fromRazorpayMethod(razorpayMethod))
+                .paidAt(java.time.Instant.now())
+                .razorpayPaymentLinkId(paymentLinkId)
+                .build();
+
+        BusinessPayment saved = paymentRepository.save(payment);
+        log.info("Webhook payment recorded — id={}, invoiceId={}, amount={}, method={}",
+                saved.getId(), invoiceId, saved.getAmount(), saved.getMethod());
+
+        // Check if invoice is now fully paid
+        BigDecimal totalPaid = alreadyPaid.add(amount);
+        if (totalPaid.compareTo(invoice.getTotalAmount()) >= 0) {
+            invoiceService.markPaid(invoiceId);
+            log.info("Invoice fully paid via webhook — invoiceId={}, totalCollected={}",
+                    invoiceId, totalPaid);
+
+            Customer customer = customerService.getEntityById(invoice.getCustomerId());
+            firePaymentEvent(invoice, customer, saved);
+        }
+    }
+
     // ── Queries ───────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -146,7 +218,7 @@ public class BusinessPaymentService {
     private void firePaymentEvent(BusinessInvoice invoice, Customer customer,
                                   BusinessPayment payment) {
         try {
-            Long tenantId     = SecurityUtils.getCurrentTenantId();
+            Long tenantId     = TenantContext.getTenantId();
             String tenantName = tenantService.getTenantNameById(tenantId);
 
             // Compute outstanding balance for the payment-received email

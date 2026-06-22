@@ -4,6 +4,7 @@ import com.mtbs.billing.dto.InvoiceResponse;
 import com.mtbs.billing.entity.Subscription;
 import com.mtbs.tenant.entity.Tenant;
 import com.mtbs.shared.enums.auth.Status;
+import com.mtbs.shared.enums.billing.InvoiceType;
 import com.mtbs.shared.enums.billing.SubscriptionStatus;
 import com.mtbs.shared.multitenancy.TenantContext;
 import com.mtbs.tenant.service.TenantService;

@@ -61,7 +61,7 @@ public class TenantAwareTaskDecorator implements TaskDecorator {
                     TenantContext.setCurrentSchema(schemaName);
                 }
 
-                if (!mdcContextMap.isEmpty()) {
+                if (mdcContextMap != null && !mdcContextMap.isEmpty()) {
                     MDC.setContextMap(mdcContextMap);
                 }
 

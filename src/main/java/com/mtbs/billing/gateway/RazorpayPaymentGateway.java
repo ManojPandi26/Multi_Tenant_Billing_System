@@ -44,16 +44,23 @@ public class RazorpayPaymentGateway implements PaymentGatewayPort {
 
             Order order = razorpayClient.orders.create(orderRequest);
 
+            String orderId = order.get("id");
+            String status = order.get("status");
+
+            log.info("Razorpay order created — amountSentPaise={}, currency={}, receipt={}, orderId={}, status={}",
+                    amountPaise, currency, receipt, orderId, status);
+
             return OrderResponse.builder()
-                    .orderId(order.get("id"))
+                    .orderId(orderId)
                     .amount(((Number) order.get("amount")).longValue())
                     .currency(order.get("currency"))
                     .receipt(order.get("receipt"))
-                    .status(order.get("status"))
+                    .status(status)
                     .keyId(keyId)
                     .build();
         } catch (RazorpayException e) {
-            log.error("Razorpay error creating order: {}", e.getMessage());
+            log.error("Razorpay error creating order — amountPaise={}, currency={}, receipt={}: {}",
+                    amountPaise, currency, receipt, e.getMessage());
             throw PaymentException.orderCreationFailed(e.getMessage());
         }
     }

@@ -4,35 +4,40 @@ import com.mtbs.billing.dto.OrderResponse;
 import com.mtbs.billing.dto.PaymentResponse;
 import com.mtbs.billing.dto.RefundResult;
 import com.mtbs.billing.dto.VerifyPaymentRequest;
+import com.mtbs.billing.dto.VerifyPaymentResponse;
 import com.mtbs.billing.entity.Invoice;
 import com.mtbs.billing.entity.Payment;
-import com.mtbs.billing.event.PaymentCapturedEventPublisher;
 import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.billing.mapper.PaymentMapper;
 import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
+import com.mtbs.shared.enums.billing.InvoiceType;
 import com.mtbs.shared.enums.billing.PaymentStatus;
 import com.mtbs.shared.enums.notification.NotificationEvent;
 import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.shared.event.billing.PaymentCapturedEvent;
 import com.mtbs.shared.event.audit.AuditLogEvent;
 import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
+import com.mtbs.shared.exception.ErrorCode;
 import com.mtbs.shared.exception.PaymentException;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
+import com.mtbs.shared.multitenancy.entity.PaymentOrderMapping;
+import com.mtbs.shared.multitenancy.repository.PaymentOrderMappingRepository;
 import com.mtbs.billing.repository.InvoiceRepository;
 import com.mtbs.billing.repository.PaymentRepository;
 import com.mtbs.billing.gateway.PaymentGatewayPort;
 import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -49,12 +54,15 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final InvoiceRepository invoiceRepository;
     private final InvoiceService invoiceService;
-    private final PaymentCapturedEventPublisher paymentCapturedEventPublisher;
     private final PaymentGatewayPort paymentGateway;
     private final OutboxEventPublisher outboxEventPublisher;
     private final SubscriptionRepository subscriptionRepository;
     private final TenantService tenantService;
     private final PaymentMapper paymentMapper;
+    private final PaymentOrderMappingRepository paymentOrderMappingRepository;
+
+    @Value("${razorpay.key-id}")
+    private String razorpayKeyId;
 
 
     // ── Initiate payment ──────────────────────────────────────────────────────
@@ -65,6 +73,11 @@ public class PaymentService {
      */
     @Transactional
     public OrderResponse processPayment(Long invoiceId) {
+        return processPayment(invoiceId, null);
+    }
+
+    @Transactional
+    public OrderResponse processPayment(Long invoiceId, InvoiceType invoiceType) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> ResourceException.notFound("Invoice", invoiceId));
 
@@ -80,15 +93,33 @@ public class PaymentService {
                         .orderId(existing.getRazorpayOrderId())
                         .amount(existing.getAmount().multiply(BigDecimal.valueOf(100)).longValue())
                         .currency(existing.getCurrency())
+                        .keyId(razorpayKeyId)
                         .build())
-                .orElseGet(() -> createNewOrder(invoice, idempotencyKey));
+                .orElseGet(() -> createNewOrder(invoice, idempotencyKey, invoiceType));
     }
 
-    private OrderResponse createNewOrder(Invoice invoice, String idempotencyKey) {
+    private OrderResponse createNewOrder(Invoice invoice, String idempotencyKey, InvoiceType invoiceType) {
+        // Validate invoice amount before creating payment order
+        if (invoice.getTotalAmount() == null || invoice.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new PaymentException(ErrorCode.VALIDATION_ERROR,
+                    "Cannot process payment: invoice " + invoice.getId()
+                    + " has invalid total amount: " + invoice.getTotalAmount()
+                    + ". Amount must be greater than zero.");
+        }
+
         // Convert to paise (Razorpay requires smallest currency unit)
         long amountInPaise = invoice.getTotalAmount()
                 .multiply(BigDecimal.valueOf(100))
+                .setScale(0, RoundingMode.HALF_UP)
                 .longValue();
+
+        // Razorpay minimum: ₹1 = 100 paise — reject anything below this
+        if (amountInPaise < 100) {
+            throw new PaymentException(ErrorCode.VALIDATION_ERROR,
+                    "Cannot process payment: amount " + amountInPaise
+                    + " paise is below Razorpay minimum of 100 paise (₹1). "
+                    + "Invoice: " + invoice.getId());
+        }
 
         // receipt acts as the idempotency key on Razorpay's side
         OrderResponse order = paymentGateway.createOrder(amountInPaise, invoice.getCurrency(), idempotencyKey);
@@ -104,7 +135,12 @@ public class PaymentService {
                 .build();
 
         paymentRepository.save(payment);
-        log.info("Payment order created — invoiceId={}, orderId={}", invoice.getId(), order.getOrderId());
+
+        log.info("Payment order created — invoiceId={}, paymentId={}, invoiceAmount={}, " +
+                        "amountInPaise={}, currency={}, receipt={}, orderId={}",
+                invoice.getId(), payment.getId(),
+                invoice.getTotalAmount(), amountInPaise,
+                invoice.getCurrency(), idempotencyKey, order.getOrderId());
 
         outboxEventPublisher.save(AuditLogEvent.builder()
                 .action(AuditAction.PAYMENT_INITIATED)
@@ -117,21 +153,27 @@ public class PaymentService {
                 .module("BILLING")
                 .build(), "Payment", payment.getId());
 
+        // Save cross-schema mapping for webhook tenant resolution
+        PaymentOrderMapping mapping = PaymentOrderMapping.builder()
+                .razorpayOrderId(order.getOrderId())
+                .tenantId(TenantContext.getTenantId())
+                .schemaName(TenantContext.getSchemaName())
+                .invoiceId(invoice.getId())
+                .invoiceType(invoiceType)
+                .build();
+        paymentOrderMappingRepository.save(mapping);
+
         return order;
     }
 
-    // ── Verify and capture ────────────────────────────────────────────────────
+    // ── Verify Only (frontend callback) ─────────────────────────────────────
 
     /**
-     * Verifies the Razorpay signature from the frontend after checkout completes.
-     * On success: marks payment SUCCEEDED, marks invoice PAID.
+     * Verifies the Razorpay payment signature from the frontend after checkout.
+     * This is a pure verification — no DB mutations, no capture.
+     * The webhook handler ({@link #handlePaymentSuccess}) updates payment + invoice state.
      */
-    @Transactional
-    public PaymentResponse verifyAndCapturePayment(VerifyPaymentRequest request) {
-        Payment payment = paymentRepository.findByRazorpayOrderId(request.getRazorpayOrderId())
-                .orElseThrow(() -> ResourceException.notFound("Payment", request.getRazorpayOrderId()));
-
-        // Verify HMAC signature
+    public VerifyPaymentResponse verifyPayment(VerifyPaymentRequest request) {
         boolean valid = paymentGateway.verifyPaymentSignature(
                 request.getRazorpayOrderId(),
                 request.getRazorpayPaymentId(),
@@ -141,26 +183,43 @@ public class PaymentService {
             throw PaymentException.invalidSignature();
         }
 
-        // Capture the payment (Razorpay manual capture mode)
-        long amountInPaise = payment.getAmount()
-                .multiply(BigDecimal.valueOf(100))
-                .longValue();
-        paymentGateway.capturePayment(request.getRazorpayPaymentId(), amountInPaise);
+        log.info("Payment signature verified — orderId={}, paymentId={}",
+                request.getRazorpayOrderId(), request.getRazorpayPaymentId());
 
-        payment.setRazorpayPaymentId(request.getRazorpayPaymentId());
-        payment.setRazorpaySignature(request.getRazorpaySignature());
+        return VerifyPaymentResponse.builder()
+                .valid(true)
+                .razorpayOrderId(request.getRazorpayOrderId())
+                .razorpayPaymentId(request.getRazorpayPaymentId())
+                .build();
+    }
+
+    // ── Webhook handlers (called by RazorpayWebhookController) ───────────────
+
+    @Transactional
+    public Long handlePaymentSuccess(String razorpayPaymentId, String razorpayOrderId) {
+        Payment payment = paymentRepository.findByRazorpayPaymentId(razorpayPaymentId)
+                .orElseGet(() -> paymentRepository.findByRazorpayOrderId(razorpayOrderId)
+                        .orElse(null));
+
+        if (payment == null) {
+            log.warn("Webhook: no payment found for razorpayPaymentId={} or razorpayOrderId={}",
+                    razorpayPaymentId, razorpayOrderId);
+            return null;
+        }
+
+        if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
+            return null;
+        }
+
+        payment.setRazorpayPaymentId(razorpayPaymentId);
         payment.setStatus(PaymentStatus.SUCCEEDED);
         payment.setPaidAt(Instant.now());
         paymentRepository.save(payment);
 
-        invoiceService.markInvoicePaid(
-                payment.getInvoiceId(),
-                request.getRazorpayPaymentId(),
-                Instant.now());
+        invoiceService.markInvoicePaid(payment.getInvoiceId(), razorpayPaymentId, Instant.now());
 
-        paymentCapturedEventPublisher.publish(new PaymentCapturedEvent(NotificationEvent.PAYMENT_CAPTURED, TenantContext.getTenantId(), payment.getInvoiceId()));
-
-        log.info("Payment verified and captured — paymentId={}", payment.getId());
+        log.info("Webhook: payment success processed — razorpayPaymentId={}, orderId={}",
+                razorpayPaymentId, razorpayOrderId);
 
         firePaymentEvent(NotificationEvent.PAYMENT_SUCCEEDED, payment);
 
@@ -170,40 +229,11 @@ public class PaymentService {
                 .entityId(payment.getId())
                 .contextTenantId(TenantContext.getTenantId())
                 .contextTenantName(tenantService.fetchTenantName())
-                .changesBefore(Map.of("status", "PENDING"))
-                .changesAfter(Map.of("status", "SUCCEEDED", "razorpayPaymentId", payment.getRazorpayPaymentId()))
-                .description("Payment completed: " + payment.getAmount() + " " + payment.getCurrency())
+                .description("Payment completed via webhook: " + payment.getAmount() + " " + payment.getCurrency())
                 .module("BILLING")
                 .build(), "Payment", payment.getId());
 
-        return paymentMapper.toResponse(payment);
-    }
-
-    // ── Webhook handlers (called by RazorpayWebhookController) ───────────────
-
-    @Transactional
-    public void handlePaymentSuccess(String razorpayPaymentId) {
-        paymentRepository.findByRazorpayPaymentId(razorpayPaymentId).ifPresent(payment -> {
-            if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
-                return; // Already processed — idempotent
-            }
-            payment.setStatus(PaymentStatus.SUCCEEDED);
-            payment.setPaidAt(Instant.now());
-            paymentRepository.save(payment);
-            invoiceService.markInvoicePaid(payment.getInvoiceId(), razorpayPaymentId, Instant.now());
-            log.info("Webhook: payment success processed — razorpayPaymentId={}", razorpayPaymentId);
-            firePaymentEvent(NotificationEvent.PAYMENT_SUCCEEDED, payment);
-
-            outboxEventPublisher.save(AuditLogEvent.builder()
-                    .action(AuditAction.PAYMENT_COMPLETED)
-                    .entityType(AuditEntityType.PAYMENT)
-                    .entityId(payment.getId())
-                    .contextTenantId(TenantContext.getTenantId())
-                    .contextTenantName(tenantService.fetchTenantName())
-                    .description("Payment completed via webhook: " + payment.getAmount() + " " + payment.getCurrency())
-                    .module("BILLING")
-                    .build(), "Payment", payment.getId());
-        });
+        return payment.getInvoiceId();
     }
 
     @Transactional
