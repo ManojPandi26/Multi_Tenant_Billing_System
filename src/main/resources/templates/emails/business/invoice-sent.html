@@ -38,10 +38,11 @@
         </table>
     </div>
 
-    <!-- Pay Now button — only when payment link exists -->
-    <div th:if="${paymentLinkUrl}" style="text-align:center; margin:24px 0;">
-        <a th:href="${paymentLinkUrl}" class="btn">Pay Now</a>
-    </div>
+    <p class="text" style="font-size:13px; color:#6b7280; margin-top:16px;">
+        You will receive a separate email from <strong>Razorpay</strong> with a secure
+        payment link to complete the payment. Please check your inbox (and spam folder)
+        and follow the instructions to pay online.
+    </p>
 
     <hr class="divider"/>
 

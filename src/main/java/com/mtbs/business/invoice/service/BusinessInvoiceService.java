@@ -21,6 +21,10 @@ import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.business.invoice.repository.BusinessInvoiceItemRepository;
 import com.mtbs.business.invoice.repository.BusinessInvoiceRepository;
 import com.mtbs.billing.gateway.PaymentGatewayPort;
+import com.mtbs.shared.enums.billing.InvoiceType;
+import com.mtbs.shared.multitenancy.TenantContext;
+import com.mtbs.shared.multitenancy.entity.PaymentOrderMapping;
+import com.mtbs.shared.multitenancy.repository.PaymentOrderMappingRepository;
 import com.mtbs.tenant.service.TenantService;
 import com.mtbs.shared.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -86,6 +90,7 @@ public class BusinessInvoiceService {
 
     private final BusinessInvoicePdfService pdfService;
     private final PaymentGatewayPort paymentGateway;
+    private final PaymentOrderMappingRepository paymentOrderMappingRepository;
 
     // ── Create ────────────────────────────────────────────────────────────────
 
@@ -472,11 +477,6 @@ public class BusinessInvoiceService {
                         .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")));
             }
 
-            // paymentLinkUrl — only if a Razorpay link was generated
-            if (invoice.getRazorpayPaymentLinkId() != null) {
-                extra.put("paymentLinkUrl", invoice.getRazorpayPaymentLinkId());
-            }
-
             // PDF bytes — encode to Base64 for serialization
             String pdfBase64 = null;
             if (pdfBytes != null && pdfBytes.length > 0) {
@@ -586,6 +586,17 @@ public class BusinessInvoiceService {
 
         invoice.setRazorpayPaymentLinkId(paymentLinkId);
         invoiceRepository.save(invoice);
+
+        // Save cross-schema mapping for webhook tenant resolution
+        PaymentOrderMapping mapping = PaymentOrderMapping.builder()
+                .razorpayPaymentLinkId(paymentLinkId)
+                .tenantId(TenantContext.getTenantId())
+                .schemaName(TenantContext.getSchemaName())
+                .domain("BUSINESS")
+                .invoiceType(InvoiceType.CUSTOMER_INVOICE)
+                .invoiceId(invoice.getId())
+                .build();
+        paymentOrderMappingRepository.save(mapping);
 
         log.info("Payment link created — invoiceId={}, linkId={}", invoiceId, paymentLinkId);
         return paymentLinkId;
