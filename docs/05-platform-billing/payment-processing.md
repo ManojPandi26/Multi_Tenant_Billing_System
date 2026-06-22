@@ -85,7 +85,7 @@ Only Razorpay and our backend know the secret key. Attacker cannot forge a valid
 ### Inbound (Who Calls Payment Service)
 - `PaymentController.processPayment()` — HTTP POST /api/payments/process/{invoiceId} (user clicks pay)
 - `PaymentController.verifyAndCapturePayment()` — HTTP POST /api/payments/verify (user completes checkout)
-- `RazorpayWebhookController.handlePaymentSuccess()` — Razorpay webhook (async confirmation)
+- `RazorpayWebhookController` → `RazorpayWebhookOrchestrator` → `PlatformPaymentWebhookHandler` — Razorpay webhook (async confirmation via orchestration layer)
 - `SubscriptionService.activateUpgradeAfterPayment()` — Payment verified, activate upgrade
 - `PaymentRetryJob` — Scheduled job attempts retries for failed payments
 
@@ -98,6 +98,7 @@ Only Razorpay and our backend know the secret key. Attacker cannot forge a valid
 - `SubscriptionService.activateUpgradeAfterPayment()` — Activate subscription after payment
 - `OutboxEventPublisher.save()` — Publish PaymentCapturedEvent, AuditLogEvent
 - `PaymentCapturedEventPublisher.publish()` — Publish payment success to listeners
+- `PaymentOrderMappingRepository.save()` — Save cross-schema mapping for webhook tenant resolution
 
 ### Configuration
 - `razorpay.key-id` — Public key (sent to client for checkout)
@@ -186,41 +187,40 @@ FAILED
 ```java
 @Transactional
 public OrderResponse processPayment(Long invoiceId) {
-    // Fetch invoice
+    return processPayment(invoiceId, null);
+}
+
+@Transactional
+public OrderResponse processPayment(Long invoiceId, InvoiceType invoiceType) {
     Invoice invoice = invoiceRepository.findById(invoiceId)
         .orElseThrow(() -> ResourceException.notFound("Invoice", invoiceId));
     
-    // Validate invoice is not already paid
     if (invoice.getStatus() == InvoiceStatus.PAID) {
         throw PaymentException.paymentAlreadyProcessed();
     }
     
-    // Generate idempotency key
     String idempotencyKey = "pay-" + TenantContext.getTenantId() + "-" + invoiceId;
     
-    // Check if order already created (idempotency)
+    // Idempotency — return existing order if already created
     Optional<Payment> existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
     if (existing.isPresent()) {
-        Payment existingPayment = existing.get();
+        Payment p = existing.get();
         return OrderResponse.builder()
-            .orderId(existingPayment.getRazorpayOrderId())
-            .amount(existingPayment.getAmount().multiply(BigDecimal.valueOf(100)).longValue())
-            .currency(existingPayment.getCurrency())
+            .orderId(p.getRazorpayOrderId())
+            .amount(p.getAmount().multiply(BigDecimal.valueOf(100)).longValue())
+            .currency(p.getCurrency())
             .build();
     }
     
-    // Create new Razorpay order
+    // Create Razorpay order
     long amountInPaise = invoice.getTotalAmount()
         .multiply(BigDecimal.valueOf(100))
         .longValue();
     
     OrderResponse order = paymentGateway.createOrder(
-        amountInPaise,
-        invoice.getCurrency(),
-        idempotencyKey  // Razorpay's receipt parameter
-    );
+        amountInPaise, invoice.getCurrency(), idempotencyKey);
     
-    // Store payment record
+    // Save payment record
     Payment payment = Payment.builder()
         .invoiceId(invoice.getId())
         .amount(invoice.getTotalAmount())
@@ -230,8 +230,17 @@ public OrderResponse processPayment(Long invoiceId) {
         .idempotencyKey(idempotencyKey)
         .retryCount(0)
         .build();
-    
     paymentRepository.save(payment);
+    
+    // Save cross-schema mapping for webhook tenant resolution
+    PaymentOrderMapping mapping = PaymentOrderMapping.builder()
+        .razorpayOrderId(order.getOrderId())
+        .tenantId(TenantContext.getTenantId())
+        .schemaName(TenantContext.getSchemaName())
+        .invoiceId(invoice.getId())
+        .invoiceType(invoiceType)
+        .build();
+    paymentOrderMappingRepository.save(mapping);
     
     // Publish audit event
     outboxEventPublisher.save(AuditLogEvent.builder()
@@ -444,39 +453,104 @@ public OrderResponse retryFailedPayment(Long paymentId) {
 }
 ```
 
-### Webhook Handling (Async Confirmation)
+### Webhook Handling (Async Confirmation via Orchestrator)
 
-**Razorpay sends webhook**: `POST /webhooks/razorpay`
+**Problem**: Webhook endpoint is public (no JWT auth). `TenantContext` is not set, so Hibernate cannot route queries to the correct tenant schema. Previously relied on a thread-leak from `JwtAuthenticationFilter` (fixed with `finally` block).
 
+**Solution**: Webhook Orchestration Layer with cross-schema `payment_order_mapping` table.
+
+**Razorpay sends webhook**: `POST /api/webhooks/razorpay`
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ RazorpayWebhookController (thin)                                │
+│  1. Verify HMAC signature (security)                            │
+│  2. Extract event type + payload                                │
+│  3. Delegate to orchestrator                                    │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ RazorpayWebhookOrchestrator                                     │
+│  1. Parse raw JSON → WebhookEvent                               │
+│  2. Resolve tenant → TenantResolution {tenantId, schemaName}    │
+│     └─ PlatformPaymentTenantResolver                            │
+│        └─ Query public.payment_order_mapping by razorpay_order_id│
+│  3. Set TenantContext (tenantId + schemaName)                   │
+│  4. Dispatch to matching handler                                │
+│     └─ PlatformPaymentWebhookHandler                            │
+│        └─ PaymentService.handlePaymentSuccess/Failure           │
+│  5. Clear TenantContext (finally block)                         │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ PlatformPaymentWebhookHandler                                   │
+│  Delegates to PaymentService.handlePaymentSuccess/Failure       │
+│  (code remains unchanged — backward compatible)                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key insight**: The `payment_order_mapping` table lives in the `public` schema (accessible without tenant context) and maps `razorpay_order_id → tenantId + schemaName`. It is populated at order creation time (when `TenantContext` IS set via JWT auth) and queried by the webhook orchestrator (when `TenantContext` is NOT set).
+
+**Code — Controller (thin)**:
 ```java
-@PostMapping("/webhooks/razorpay")
-public ResponseEntity<String> handleWebhook(@RequestBody String payload, 
+@PostMapping
+public ResponseEntity<String> handleWebhook(@RequestBody String payload,
                                             @RequestHeader("X-Razorpay-Signature") String signature) {
-    // Verify webhook signature (different from payment signature)
-    boolean valid = verifyWebhookSignature(payload, signature);
-    if (!valid) {
+    if (!verifyWebhookSignature(payload, signature)) {
         return ResponseEntity.status(401).body("Invalid signature");
     }
-    
-    // Parse webhook event
-    JSONObject event = new JSONObject(payload);
-    String eventType = event.getString("event");
-    JSONObject eventData = event.getJSONObject("payload").getJSONObject("payment").getJSONObject("entity");
-    
-    String razorpayPaymentId = eventData.getString("id");
-    String razorpayOrderId = eventData.getString("order_id");
-    
-    if ("payment.authorized".equals(eventType)) {
-        // Payment authorized, safe to capture
-        paymentService.handlePaymentAuthorized(razorpayPaymentId, razorpayOrderId);
-    } else if ("payment.failed".equals(eventType)) {
-        // Payment failed on Razorpay side
-        String failureCode = eventData.optString("error_code");
-        String failureMessage = eventData.optString("error_description");
-        paymentService.handlePaymentFailed(razorpayPaymentId, failureCode, failureMessage);
+    orchestrator.handleWebhookEvent(payload);
+    return ResponseEntity.ok("OK");
+}
+```
+
+**Code — Orchestrator**:
+```java
+@Component
+@RequiredArgsConstructor
+public class RazorpayWebhookOrchestrator {
+
+    private final List<WebhookTenantResolver> tenantResolvers;
+    private final List<RazorpayWebhookHandler> handlers;
+
+    public void handleWebhookEvent(String rawJson) {
+        WebhookEvent event = parse(rawJson);
+
+        TenantResolution resolution = tenantResolvers.stream()
+            .filter(r -> r.supports(event))
+            .findFirst()
+            .map(r -> r.resolve(event))
+            .orElseThrow(() -> new WebhookException("No resolver for " + event.getEvent()));
+
+        TenantContext.setTenantId(resolution.getTenantId());
+        TenantContext.setCurrentSchema(resolution.getSchemaName());
+
+        try {
+            handlers.stream()
+                .filter(h -> h.supports(event, resolution))
+                .findFirst()
+                .ifPresent(h -> h.handle(event, resolution));
+        } finally {
+            TenantContext.clear();
+        }
     }
-    
-    return ResponseEntity.ok("OK");  // Ack to Razorpay
+}
+```
+
+**Code — PaymentOrderMapping (public schema)**:
+```java
+@Entity
+@Table(name = "payment_order_mapping", schema = "public")
+public class PaymentOrderMapping extends AuditableEntity {
+    private String razorpayOrderId;     // Unique index
+    private String razorpayPaymentId;   // Set after webhook
+    private Long tenantId;              // Resolved tenant
+    private String schemaName;          // Tenant DB schema
+    private String domain;              // PLATFORM or BUSINESS
+    private InvoiceType invoiceType;    // UPGRADE, RENEWAL, CUSTOMER_INVOICE, ADDON, MANUAL
+    private Long invoiceId;             // FK to tenant-schema invoice
 }
 ```
 
@@ -627,6 +701,7 @@ Authorized       Declined
 |-------|-----|----------------|------|
 | `Payment` | [BIL-4] | Entity mapping | Stores payment record for each order |
 | `PaymentService` | [BIL-16] | `processPayment()` | Step 1: create Razorpay order + payment record |
+| `PaymentService` | [BIL-16] | `processPayment(id, InvoiceType)` | Overload that also saves PaymentOrderMapping |
 | `PaymentService` | [BIL-16] | `verifyAndCapturePayment()` | Step 2: verify signature + capture funds |
 | `PaymentService` | [BIL-16] | `retryFailedPayment()` | Create new order for retry (max 3x) |
 | `PaymentService` | [BIL-16] | `refundPayment()` | Issue full/partial refund to card |
@@ -638,7 +713,12 @@ Authorized       Declined
 | `PaymentController` | [BIL-42] | POST `/process/{invoiceId}` | Step 1 endpoint |
 | `PaymentController` | [BIL-42] | POST `/verify` | Step 2 endpoint |
 | `PassmentController` | [BIL-42] | POST `/{id}/retry` | Retry endpoint for failed payment |
-| `RazorpayWebhookController` | [BIL-45] | POST `/webhooks/razorpay` | Receive payment status from Razorpay |
+| `RazorpayWebhookController` | [BIL-45] | POST `/webhooks/razorpay` | Thin controller, delegates to orchestrator |
+| `RazorpayWebhookOrchestrator` | — | `handleWebhookEvent()` | Sets TenantContext, dispatches to handler |
+| `PlatformPaymentWebhookHandler` | — | `handle()` | Delegates to PaymentService webhook methods |
+| `PlatformPaymentTenantResolver` | — | `resolve()` | Queries payment_order_mapping by order ID |
+| `PaymentOrderMapping` | — | Entity (public schema) | Maps razorpay_order_id → tenant context |
+| `InvoiceType` | — | Enum | UPGRADE, RENEWAL, CUSTOMER_INVOICE, ADDON, MANUAL |
 | `PaymentResponse` | [BIL-48] | DTO | API response shape after payment verification |
 | `VerifyPaymentRequest` | [BIL-54] | DTO | Request body with signature + payment_id |
 
