@@ -98,7 +98,6 @@ public class CustomerController {
     // ── PUT /api/customers/{id} ───────────────────────────────────────────────
 
     @PutMapping("/{id}")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('PERMISSION_CUSTOMER_MANAGE')")
     @Operation(
         summary = "Update a customer",

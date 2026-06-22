@@ -70,6 +70,8 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
 
+        executor.setTaskDecorator(new TenantAwareTaskDecorator());
+
         executor.initialize();
         return executor;
     }

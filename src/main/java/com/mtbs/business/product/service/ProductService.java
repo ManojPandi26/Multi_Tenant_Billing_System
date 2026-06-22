@@ -71,10 +71,12 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public Page<ProductResponse> list(String search, Pageable pageable) {
-        return productRepository.searchProducts(
-                StringUtils.hasText(search) ? search.trim() : null,
-                pageable
-        ).map(productMapper::toResponse);
+        if (StringUtils.hasText(search)) {
+            return productRepository.searchProducts(search.trim(), pageable)
+                    .map(productMapper::toResponse);
+        }
+        return productRepository.findAllByOrderByIsActiveDescNameAsc(pageable)
+                .map(productMapper::toResponse);
     }
 
     /**

@@ -70,7 +70,6 @@ public class InvoiceController {
     // ── POST /api/invoices/{id}/void ──────────────────────────────────────────
 
     @PostMapping("/{id}/void")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Void an invoice",
@@ -89,7 +88,6 @@ public class InvoiceController {
     // ── GET /api/invoices/{id}/download ───────────────────────────────────────
 
     @GetMapping("/{id}/download")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('PERMISSION_BILLING_MANAGE')")
     @Operation(
             summary = "Download invoice as PDF",

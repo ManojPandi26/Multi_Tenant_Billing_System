@@ -76,7 +76,7 @@ public class ProductController {
     public ResponseEntity<ApiResponse<PageResponse<ProductResponse>>> list(
             @Parameter(description = "Optional search term — matches product name")
             @RequestParam(required = false) String search,
-            @PageableDefault(size = 20) Pageable pageable) {
+            @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
         Page<ProductResponse> response = productService.list(search, pageable);
         return ResponseEntity.ok(ApiResponse.success(PageResponse.of(response), "Products fetched successfully"));
@@ -116,7 +116,6 @@ public class ProductController {
     // ── PUT /api/products/{id} ────────────────────────────────────────────────
 
     @PutMapping("/{id}")
-    @TrackUsage(metric = UsageMetric.API_CALLS)
     @PreAuthorize("hasAuthority('PERMISSION_PRODUCT_MANAGE')")
     @Operation(
         summary = "Update a product",
