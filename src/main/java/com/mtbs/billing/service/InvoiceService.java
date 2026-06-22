@@ -2,25 +2,29 @@ package com.mtbs.billing.service;
 
 import com.mtbs.billing.dto.InvoiceLineItemResponse;
 import com.mtbs.billing.dto.InvoiceResponse;
+import com.mtbs.billing.dto.invoice.InvoiceGenerationRequest;
+import com.mtbs.billing.dto.pricing.PricingResult;
 import com.mtbs.billing.entity.Invoice;
 import com.mtbs.billing.entity.InvoiceLineItem;
-import com.mtbs.billing.mapper.InvoiceMapper;
-import com.mtbs.billing.mapper.InvoiceLineItemMapper;
-import com.mtbs.billing.repository.SubscriptionRepository;
-import com.mtbs.tenant.entity.Plan;
 import com.mtbs.billing.entity.Subscription;
+import com.mtbs.billing.event.outbox.OutboxEventPublisher;
+import com.mtbs.billing.mapper.InvoiceLineItemMapper;
+import com.mtbs.billing.mapper.InvoiceMapper;
+import com.mtbs.billing.repository.InvoiceLineItemRepository;
+import com.mtbs.billing.repository.InvoiceRepository;
+import com.mtbs.billing.repository.SubscriptionRepository;
 import com.mtbs.shared.enums.billing.InvoiceStatus;
 import com.mtbs.shared.enums.billing.LineItemType;
 import com.mtbs.shared.enums.notification.NotificationEvent;
-import com.mtbs.shared.event.billing.BillingEvent;
-import com.mtbs.billing.event.outbox.OutboxEventPublisher;
 import com.mtbs.shared.event.audit.AuditLogEvent;
+import com.mtbs.shared.event.billing.BillingEvent;
 import com.mtbs.shared.enums.audit.AuditAction;
 import com.mtbs.shared.enums.audit.AuditEntityType;
+import com.mtbs.shared.exception.ErrorCode;
+import com.mtbs.shared.exception.PaymentException;
 import com.mtbs.shared.exception.ResourceException;
 import com.mtbs.shared.multitenancy.TenantContext;
-import com.mtbs.billing.repository.InvoiceLineItemRepository;
-import com.mtbs.billing.repository.InvoiceRepository;
+import com.mtbs.tenant.entity.Plan;
 import com.mtbs.tenant.service.PlanService;
 import com.mtbs.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +53,8 @@ import java.util.stream.Collectors;
  *  - generatePdf handled by InvoicePdfService → GET /api/invoices/{id}/download
  *
  * Internal-only (called by BillingCycleJob or PaymentService — no controller):
- *  - generateInvoice(Long, Instant, Instant)
+ *  - generateInvoice(InvoiceGenerationRequest)
+ *  - generateInvoice(Long, Instant, Instant)  — delegates to above
  *  - finalizeInvoice(Long)
  *  - markInvoicePaid(Long, String, Instant)
  */
@@ -67,58 +72,64 @@ public class InvoiceService {
     private final InvoiceMapper invoiceMapper;
     private final InvoiceLineItemMapper lineItemMapper;
 
-    // ── Internal — called by BillingCycleJob ──────────────────────────────────
+    // ── Primary invoice generation ────────────────────────────────────────────
 
     /**
-     * Generates a DRAFT invoice for the current subscription billing period.
-     * Adds a single subscription line item priced at the plan's monthly/annual rate.
-     * Called only by BillingCycleJob — never from a controller.
+     * Generates a DRAFT invoice from a structured {@link InvoiceGenerationRequest}.
+     * <p>
+     * This is the primary invoice generation method. Pricing must come from a
+     * {@link PricingResult} — never derived from the subscription's current plan
+     * (which may be stale during upgrades).
+     * </p>
+     *
+     * @param request the invoice generation request containing subscription,
+     *                period, and pricing data
+     * @return InvoiceResponse for the newly created invoice
+     * @throws PaymentException if the pricing amount is null, zero, or negative
      */
     @Transactional
-    public InvoiceResponse generateInvoice(Long subscriptionId, Instant periodStart, Instant periodEnd) {
-        Subscription subscription = subscriptionRepository.findById(subscriptionId)
-                .orElseThrow(() -> ResourceException.notFound("Subscription", subscriptionId));
+    public InvoiceResponse generateInvoice(InvoiceGenerationRequest request) {
+        validatePricing(request);
 
-        if (subscription == null) {
-            throw ResourceException.notFound("Subscription", subscriptionId);
-        }
-
-        Plan plan = planService.getPlanById(subscription.getPlanId());
-
-        BigDecimal price = subscription.getBillingCycle().name().equals("ANNUAL")
-                ? planService.getPriceAnnual(plan.getId())
-                : planService.getPriceMonthly(plan.getId());
+        PricingResult pricing = request.getPricing();
+        Plan plan = pricing.getTargetPlan();
 
         Invoice invoice = Invoice.builder()
-                .subscriptionId(subscriptionId)
+                .subscriptionId(request.getSubscriptionId())
                 .invoiceNumber(generateInvoiceNumber())
                 .status(InvoiceStatus.DRAFT)
-                .subtotal(price)
+                .subtotal(pricing.getChargeAmount())
                 .taxAmount(BigDecimal.ZERO)
                 .discountAmount(BigDecimal.ZERO)
-                .totalAmount(price)
-                .currency(planService.getCurrencyForPlan(plan.getId()))
-                .billingPeriodStart(periodStart)
-                .billingPeriodEnd(periodEnd)
+                .totalAmount(pricing.getChargeAmount())
+                .currency(pricing.getCurrency() != null ? pricing.getCurrency() : planService.getCurrencyForPlan(pricing.getTargetPlan().getId()))
+                .billingPeriodStart(request.getPeriodStart())
+                .billingPeriodEnd(request.getPeriodEnd())
                 .build();
 
         Invoice saved = invoiceRepository.save(invoice);
 
-        // Add subscription line item
+        String lineItemDescription = plan.getDisplayName() + " — "
+                + pricing.getBillingCycle().name().toLowerCase() + " subscription";
+
         InvoiceLineItem lineItem = InvoiceLineItem.builder()
                 .invoice(saved)
-                .description(plan.getDisplayName() + " — "
-                        + subscription.getBillingCycle().name().toLowerCase() + " subscription")
+                .description(lineItemDescription)
                 .quantity(BigDecimal.ONE)
-                .unitPrice(price)
-                .totalPrice(price)
+                .unitPrice(pricing.getChargeAmount())
+                .totalPrice(pricing.getChargeAmount())
                 .lineItemType(LineItemType.SUBSCRIPTION)
                 .build();
 
         lineItemRepository.save(lineItem);
 
-        log.info("Invoice generated — invoiceId={}, number={}, subscriptionId={}",
-                saved.getId(), saved.getInvoiceNumber(), subscriptionId);
+        log.info("Invoice generated — invoiceId={}, number={}, subscriptionId={}, " +
+                        "plan={}, billingCycle={}, amount={}, currency={}, " +
+                        "periodStart={}, periodEnd={}",
+                saved.getId(), saved.getInvoiceNumber(), request.getSubscriptionId(),
+                plan.getCode(), pricing.getBillingCycle(),
+                pricing.getChargeAmount(), invoice.getCurrency(),
+                request.getPeriodStart(), request.getPeriodEnd());
 
         fireInvoiceEvent(NotificationEvent.INVOICE_GENERATED, saved, plan);
 
@@ -129,7 +140,10 @@ public class InvoiceService {
                 .entityName(saved.getInvoiceNumber())
                 .contextTenantId(TenantContext.getTenantId())
                 .contextTenantName(tenantService.fetchTenantName())
-                .changesAfter(Map.of("invoiceNumber", saved.getInvoiceNumber(), "amount", saved.getTotalAmount().toString(), "currency", saved.getCurrency()))
+                .changesAfter(Map.of(
+                        "invoiceNumber", saved.getInvoiceNumber(),
+                        "amount", saved.getTotalAmount().toString(),
+                        "currency", saved.getCurrency()))
                 .description("Invoice generated: " + saved.getInvoiceNumber())
                 .module("BILLING")
                 .build(), "Invoice", saved.getId());
@@ -138,8 +152,48 @@ public class InvoiceService {
     }
 
     /**
+     * Generates a DRAFT invoice for the current subscription billing period.
+     * <p>
+     * Creates a {@link PricingResult} from the subscription's current plan and
+     * delegates to {@link #generateInvoice(InvoiceGenerationRequest)}.
+     * Called by BillingCycleJob, TrialExpiryJob, TrialEndingSoonJob.
+     * </p>
+     */
+    @Transactional
+    public InvoiceResponse generateInvoice(Long subscriptionId, Instant periodStart, Instant periodEnd) {
+        Subscription subscription = subscriptionRepository.findById(subscriptionId)
+                .orElseThrow(() -> ResourceException.notFound("Subscription", subscriptionId));
+
+        Plan plan = planService.getPlanById(subscription.getPlanId());
+
+        BigDecimal price = subscription.getBillingCycle().name().equals("ANNUAL")
+                ? planService.getPriceAnnual(plan.getId())
+                : planService.getPriceMonthly(plan.getId());
+
+        PricingResult pricing = PricingResult.builder()
+                .targetPlan(plan)
+                .billingCycle(subscription.getBillingCycle())
+                .chargeAmount(price)
+                .fullCyclePrice(price)
+                .periodStart(periodStart)
+                .periodEnd(periodEnd)
+                .currency(planService.getCurrencyForPlan(plan.getId()))
+                .build();
+
+        InvoiceGenerationRequest request = InvoiceGenerationRequest.builder()
+                .subscriptionId(subscriptionId)
+                .periodStart(periodStart)
+                .periodEnd(periodEnd)
+                .pricing(pricing)
+                .build();
+
+        return generateInvoice(request);
+    }
+
+    // ── Invoice lifecycle ─────────────────────────────────────────────────────
+
+    /**
      * Moves a DRAFT invoice to OPEN status and sets a 7-day payment due date.
-     * Called only by BillingCycleJob — never from a controller.
      */
     @Transactional
     public InvoiceResponse finalizeInvoice(Long invoiceId) {
@@ -150,7 +204,7 @@ public class InvoiceService {
         }
 
         invoice.setStatus(InvoiceStatus.OPEN);
-        invoice.setDueDate(Instant.now().plusSeconds(7 * 24 * 60 * 60)); // +7 days
+        invoice.setDueDate(Instant.now().plusSeconds(7 * 24 * 60 * 60));
         Invoice saved = invoiceRepository.save(invoice);
 
         log.info("Invoice finalized — invoiceId={}, dueDate={}", saved.getId(), saved.getDueDate());
@@ -173,7 +227,6 @@ public class InvoiceService {
 
     /**
      * Marks an invoice PAID. Called by PaymentService after successful capture.
-     * Never called from a controller.
      */
     @Transactional
     public void markInvoicePaid(Long invoiceId, String razorpayPaymentId, Instant paidAt) {
@@ -199,10 +252,6 @@ public class InvoiceService {
         return invoiceRepository.findAll(pageable).map(this::mapToInvoiceResponse);
     }
 
-    /**
-     * Voids an OPEN or DRAFT invoice. Cannot void a PAID invoice.
-     * Exposed via POST /api/invoices/{id}/void.
-     */
     @Transactional
     public InvoiceResponse voidInvoice(Long invoiceId) {
         Invoice invoice = getInvoiceEntity(invoiceId);
@@ -239,10 +288,26 @@ public class InvoiceService {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
-     * Generates a sequence-based invoice number.
-     * Format: INV-{tenantId}-{YYYYMM}-{seq}
-     * seq = count of invoices in the current month + 1, zero-padded to 4 digits.
+     * Validates pricing before invoice creation.
+     * Rejects null, zero, or negative amounts to prevent sending ₹0 to Razorpay.
      */
+    private void validatePricing(InvoiceGenerationRequest request) {
+        if (request.getPricing() == null) {
+            throw new PaymentException(ErrorCode.VALIDATION_ERROR, "Pricing is required to generate an invoice");
+        }
+        PricingResult pricing = request.getPricing();
+        if (pricing.getChargeAmount() == null) {
+            throw new PaymentException(ErrorCode.VALIDATION_ERROR, "Charge amount is required to generate an invoice");
+        }
+        if (pricing.getChargeAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new PaymentException(ErrorCode.VALIDATION_ERROR,
+                    "Invoice amount must be greater than zero. Amount was: " + pricing.getChargeAmount());
+        }
+        if (pricing.getTargetPlan() == null) {
+            throw new PaymentException(ErrorCode.VALIDATION_ERROR, "Target plan is required to generate an invoice");
+        }
+    }
+
     public String generateInvoiceNumber() {
         String yearMonth = YearMonth.now(ZoneOffset.UTC)
                 .format(DateTimeFormatter.ofPattern("yyyyMM"));
@@ -265,7 +330,6 @@ public class InvoiceService {
         try {
             Subscription sub = subscriptionRepository.findById(invoice.getSubscriptionId())
                     .orElseThrow(() -> ResourceException.notFound("Subscription", invoice.getSubscriptionId()));
-
             if (sub != null) {
                 return planService.getPlanById(sub.getPlanId());
             }
@@ -293,11 +357,9 @@ public class InvoiceService {
         }
     }
 
-    // ── Response mapping ──────────────────────────────────────────────────────
-
     private InvoiceResponse mapToInvoiceResponse(Invoice invoice) {
         InvoiceResponse response = invoiceMapper.toResponse(invoice);
-        
+
         List<InvoiceLineItemResponse> items = lineItemRepository
                 .findByInvoiceId(invoice.getId())
                 .stream()
